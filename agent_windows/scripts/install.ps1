@@ -1,17 +1,38 @@
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
 
-$GITHUB_REPO = "ondravaculik03/bakalarka_public/agent_windows"
+$GITHUB_REPO = "ondravaculik03/bakalarka_public"
 $INSTALL_DIR = "$env:ProgramFiles\MonitoringAgent"
 $CONFIG_DIR = "$env:ProgramData\MojeAplikace"
 
+# Hlavičky pro GitHub API
+$headers = @{
+    "Accept" = "application/vnd.github+json"
+    "User-Agent" = "MonitoringAgentInstaller"
+}
+
 # Stáhni z GitHub
-$release = Invoke-RestMethod "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-$agentUrl = ($release.assets | Where-Object { $_.name -eq "agent-service.exe" }).browser_download_url
-$cliUrl = ($release.assets | Where-Object { $_.name -eq "agent-cli.exe" }).browser_download_url
+try {
+    $release = Invoke-RestMethod "https://api.github.com/repos/$GITHUB_REPO/releases/latest" -Headers $headers
+} catch {
+    Write-Error "Nepodařilo se získat latest release z GitHubu. Zkontroluj, zda existuje published release."
+    exit 1
+}
+
+$agentAsset = $release.assets | Where-Object { $_.name -eq "agent-service.exe" }
+$cliAsset   = $release.assets | Where-Object { $_.name -eq "agent-cli.exe" }
+
+if (-not $agentAsset -or -not $cliAsset) {
+    Write-Error "Nepodařilo se najít potřebné binárky (agent-service.exe nebo agent-cli.exe) v release."
+    exit 1
+}
+
+$agentUrl = $agentAsset.browser_download_url
+$cliUrl   = $cliAsset.browser_download_url
 
 $temp = "$env:TEMP\monitoring-agent"
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
+
 Invoke-WebRequest -Uri $agentUrl -OutFile "$temp\agent-service.exe"
 Invoke-WebRequest -Uri $cliUrl -OutFile "$temp\agent-cli.exe"
 
@@ -36,5 +57,7 @@ if ($path -notlike "*$INSTALL_DIR*") {
 schtasks /create /tn "MonitoringAgent" /tr "`"$INSTALL_DIR\agent-service.exe`"" /sc onstart /ru SYSTEM /f | Out-Null
 schtasks /create /tn "MonitoringAgentHourly" /tr "`"$INSTALL_DIR\agent-service.exe`"" /sc hourly /ru SYSTEM /f | Out-Null
 
+# Cleanup
 Remove-Item -Path $temp -Recurse -Force
+
 Write-Host "Hotovo. Nastav: agent-cli set server_url <url>"
