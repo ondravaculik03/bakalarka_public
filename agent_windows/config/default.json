@@ -1,0 +1,6 @@
+{
+  "server_url": "NOT_CONFIGURED",
+  "auth_token": "NOT_CONFIGURED",
+  "interval_seconds": 60,
+  "log_level": "INFO"
+}
