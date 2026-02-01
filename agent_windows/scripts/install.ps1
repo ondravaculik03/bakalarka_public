@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
 
-$GITHUB_REPO = "ondravaculik03/Agent_windows"
+$GITHUB_REPO = "ondravaculik03/bakalarka_public/agent_windows"
 $INSTALL_DIR = "$env:ProgramFiles\MonitoringAgent"
 $CONFIG_DIR = "$env:ProgramData\MojeAplikace"
 

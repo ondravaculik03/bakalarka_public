@@ -1,0 +1,25 @@
+# Build artefakty
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+*.exe
+
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testovací výstupy
+*.log
+
+# Virtuální prostředí
+venv/
+.env/
