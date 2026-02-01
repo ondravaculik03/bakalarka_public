@@ -5,19 +5,20 @@ import os
 import random
 import time
 
+import config
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-import config
 from lib.system_info import get_system_info
+from updater import check_for_update
 
 states = ["Safe", "Vulnerable", "Dangerous"]
 os_list = ["windows", "linux"]
 
 message_count = 0
+__version__ = "1.0.0"
 
 # Nastavení základního logování
 logging.basicConfig(
@@ -136,5 +137,6 @@ class TestAgent:
 
 
 if __name__ == "__main__":
+    check_for_update(__version__)
     agent = TestAgent()
     agent.start_agent()
