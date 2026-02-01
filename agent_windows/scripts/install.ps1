@@ -2,8 +2,8 @@
 $ErrorActionPreference = "Stop"
 
 $GITHUB_REPO = "ondravaculik03/bakalarka_public"
-$INSTALL_DIR = "$env:ProgramFiles\MonitoringAgent"
-$CONFIG_DIR = "$env:ProgramData\MojeAplikace"
+$INSTALL_DIR = "$env:ProgramFiles\Mastiff"
+$CONFIG_DIR = "$env:ProgramData\Mastiff"
 
 # Hlavičky pro GitHub API
 $headers = @{
