@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-CONFIG_DIR = Path(os.getenv("PROGRAMDATA", ".")) / "MojeAplikace"
+CONFIG_DIR = Path(os.getenv("PROGRAMDATA", ".")) / "Mastiff"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
@@ -17,7 +17,7 @@ def load():
         "server_url": "NOT_CONFIGURED",
         "interval_seconds": 60,
         "log_level": "INFO",
-        "auth_token": "super_secret_token_123",
+        "auth_token": "NOT_CONFIGURED",
     }
     save(default)
     return default

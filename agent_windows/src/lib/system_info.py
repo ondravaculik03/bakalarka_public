@@ -1,6 +1,6 @@
+import getpass
 import platform
 import socket
-import getpass
 
 
 def get_system_info():

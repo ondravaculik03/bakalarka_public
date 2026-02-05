@@ -44,7 +44,7 @@ PyInstaller.__main__.run(
     ]
 )
 
-print("\n✓ Build dokončen!")
+print("\nBuild dokončen!")
 print(f"Soubory jsou v: {dist_dir}")
 print("  - agent-service.exe")
 print("  - agent-cli.exe")

@@ -1,119 +1,83 @@
-import base64
+import getpass
 import json
 import logging
 import os
-import random
-import time
+import sys
+from pathlib import Path
 
-import config
 import requests
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from lib.system_info import get_system_info
-from updater import check_for_update
+from lib.message_encryptor import MessageEncryptor
+from lib.message_sender import MessageSender
+from lib.public_key_fetcher import PublicKeyFetcher
+from lib.system_info_reporter import SystemInfoReporter  # Import SystemInfoReporter
 
-states = ["Safe", "Vulnerable", "Dangerous"]
-os_list = ["windows", "linux"]
+from src import config, updater
 
-message_count = 0
 __version__ = "1.0.0"
 
-# Nastavení základního logování
+# Nastavení základního logování do C:\ProgramData\Mastiff\agent.log
+log_dir = Path(os.getenv("PROGRAMDATA", "C:\\ProgramData")) / "Mastiff"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_file = log_dir / "agent_info.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
+    filename=str(log_file),
+    filemode="a",
 )
 
 
 # PROMĚNNÁ PRO BEZPEČNOST
-class TestAgent:
+class Agent:
     def __init__(self):
         cfg = config.load()
         self.agent_id = os.getenv("AGENT_ID", "unknown_agent")
         self.server_url = cfg.get("server_url", "http://localhost:8000")
-        self.auth_token = cfg.get("auth_token", "dev_shared_token")
-        self._public_key: RSAPublicKey | None = None  # cached server public key
+        self.auth_token = cfg.get("auth_token", "")
+        if not self.auth_token or self.auth_token == "NOT_CONFIGURED":
+            logging.error(
+                "Chyba: 'auth_token' není nastaven. Spusť 'agent-cli set auth_token <token>'"
+            )
+            sys.exit(1)
+        self._public_key_fetcher = PublicKeyFetcher(self.server_url)
+        self._message_encryptor = MessageEncryptor()
+        self._message_sender = MessageSender(self.server_url, self.agent_id)
+        self._system_info_reporter = (
+            SystemInfoReporter()
+        )  # Instantiate SystemInfoReporter
+        self.message_count = 0  # Initialize message_count as an instance variable
 
-    def _fetch_public_key(self) -> RSAPublicKey:
-        if self._public_key is not None:
-            return self._public_key
-        resp = requests.get(f"{self.server_url}/api/public_key")
-        resp.raise_for_status()
-        pem = resp.json()["public_key_pem"].encode("utf-8")
-        public_key: RSAPublicKey = serialization.load_pem_public_key(pem)  # type: ignore
-        self._public_key = public_key
-        return public_key
+    def _fetch_public_key(self):
+        return self._public_key_fetcher.fetch_public_key()
 
-    def send_message(self, content, hostname, client_ip):
+    def send_message(
+        self, content, hostname, client_ip, client_os, client_state, client_points
+    ):
         """Pošle šifrovanou zprávu na server (AES-GCM + RSA-OAEP)."""
         try:
-            # 1) Získej veřejný klíč serveru
             public_key = self._fetch_public_key()
 
-            # 2) Vygeneruj náhodný AES klíč a nonce
-            aes_key = os.urandom(32)  # 256-bit
-            nonce = os.urandom(12)  # 96-bit pro GCM
-
-            # 3) Připrav plaintext s časem a obsahem, pak zašifruj přes AES-GCM
-            plaintext_obj = {
-                "content": content,
-                "client_timestamp": int(time.time()),
-                "auth_token": self.auth_token,
-            }
-            plaintext_bytes = json.dumps(plaintext_obj, ensure_ascii=False).encode(
-                "utf-8"
-            )
-            aesgcm = AESGCM(aes_key)
-            ciphertext = aesgcm.encrypt(nonce, plaintext_bytes, None)
-
-            # 4) Zašifruj AES klíč veřejným RSA klíčem serveru
-            enc_key = public_key.encrypt(
-                aes_key,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            )
-
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "agent_id": hostname,
-                "client_ip": client_ip,
-                "client_os": random.choice(os_list),  # pouze pro testování
-                "client_state": random.choice(
-                    states
-                ),  # pouze pro testování (náhodný stav)
-                "client_points": random.randint(
-                    0, 100
-                ),  # pouze pro testování (náhodné body)
-                "encrypted_key": base64.b64encode(enc_key).decode("utf-8"),
-                "nonce": base64.b64encode(nonce).decode("utf-8"),
-                "ciphertext": base64.b64encode(ciphertext).decode("utf-8"),
-            }
-
-            response = requests.post(
-                f"{self.server_url}/api/message", headers=headers, json=payload
-            )
-
-            if response.status_code == 200:
-                logging.info(
-                    "%s: Zpráva doručena - Celkem odesláno: %d",
-                    self.agent_id,
-                    message_count,
+            encrypted_key_b64, nonce_b64, ciphertext_b64 = (
+                self._message_encryptor.encrypt_message(
+                    json.loads(content), self.auth_token, public_key
                 )
-                return True
-            else:
-                logging.error(
-                    "%s: Chyba při odesílání - %s", self.agent_id, response.status_code
-                )
-                return False
+            )
 
-        except requests.exceptions.ConnectionError:
+            # Use the MessageSender to send the message
+            return self._message_sender.send_message(
+                encrypted_key_b64,
+                nonce_b64,
+                ciphertext_b64,
+                client_ip,
+                self.message_count,
+                client_os,
+                client_state,
+                client_points,
+            )
+
+        except requests.exceptions.RequestException as e:
             logging.error(
-                "%s: Nelze se připojit k serveru %s", self.agent_id, self.server_url
+                "%s: Chyba při odesílání nebo získávání klíče - %s", self.agent_id, e
             )
             return False
 
@@ -122,21 +86,29 @@ class TestAgent:
         logging.info("Agent %s startuje...", self.agent_id)
         logging.info("Cílová URL: %s", self.server_url)
 
-        global message_count
-        message_count += 1
-        system_info = get_system_info()
+        self.message_count += 1  # Increment instance message_count
+        system_info = self._system_info_reporter.report_system_info()
 
-        hostname = system_info.get("hostname")
-        client_ip = "N/A"
+        # Extract values for message sending
+        hostname = system_info.get("hostname", "unknown-host")
+        client_ip = system_info.get("client_ip", "N/A")
+        client_os = system_info.get("os", "unknown-os")
+        client_state = system_info.get("state", "unknown-state")
+        client_points = system_info.get("points", 0)
+
         content = json.dumps(system_info, ensure_ascii=False)
 
-        logging.debug(content)
-
-        # Pošle zprávu
-        self.send_message(content, hostname, client_ip)
+        self.send_message(
+            content,
+            hostname,
+            client_ip,
+            client_os,
+            client_state,
+            client_points,
+        )
 
 
 if __name__ == "__main__":
-    check_for_update(__version__)
-    agent = TestAgent()
+    updater.check_for_update(__version__)
+    agent = Agent()
     agent.start_agent()
