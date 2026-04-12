@@ -44,7 +44,20 @@ PyInstaller.__main__.run(
     ]
 )
 
+print("\n=== Building Updater Helper ===")
+PyInstaller.__main__.run(
+    [
+        str(src_dir / "updater_helper.py"),
+        "--name=updater",
+        "--onefile",
+        "--console",
+        f"--distpath={dist_dir}",
+        "--clean",
+    ]
+)
+
 print("\nBuild dokončen!")
 print(f"Soubory jsou v: {dist_dir}")
 print("  - agent-service.exe")
 print("  - agent-cli.exe")
+print("  - updater.exe")

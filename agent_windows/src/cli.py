@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 
-from src import config
+from src import config, updater
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,7 +58,7 @@ def main():
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {config.load().get('version', 'unknown')}",
+        version=f"%(prog)s {updater.AGENT_VERSION}",
         help="Zobrazí verzi agenta.",
     )
 
@@ -85,6 +85,27 @@ def main():
     )
     set_parser.add_argument("value", help="Nová hodnota pro daný konfigurační klíč.")
     set_parser.set_defaults(func=set_value)
+
+    # Check-update command
+    check_update_parser = subparsers.add_parser(
+        "check-update",
+        help="Zkontroluje dostupnost nové verze agenta.",
+        description="Zkontroluje, zda je dostupná nová verze Mastiff agenta.",
+    )
+    check_update_parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Při dostupné nové verzi provede aktualizaci bez potvrzení.",
+    )
+    check_update_parser.set_defaults(func=updater.check_for_update)
+
+    # Update command
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Aktualizuje agenta na nejnovější verzi.",
+        description="Aktualizuje Mastiff agenta na nejnovější verzi dostupnou na GitHubu.",
+    )
+    update_parser.set_defaults(func=updater.update_agent)
 
     args = parser.parse_args()
 

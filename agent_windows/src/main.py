@@ -13,8 +13,6 @@ from lib.system_info_reporter import SystemInfoReporter  # Import SystemInfoRepo
 
 from src import config, updater
 
-__version__ = "1.0.0"
-
 # Nastavení základního logování do C:\ProgramData\Mastiff\agent.log
 log_dir = Path(os.getenv("PROGRAMDATA", "C:\\ProgramData")) / "Mastiff"
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +107,7 @@ class Agent:
 
 
 if __name__ == "__main__":
-    updater.check_for_update(__version__)
+    if updater.is_newer_version(updater.get_latest_github_version()):
+        updater.update_agent()
     agent = Agent()
     agent.start_agent()
