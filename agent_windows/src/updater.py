@@ -8,7 +8,7 @@ from pathlib import Path
 
 import requests
 
-AGENT_VERSION = "2.0.8"
+AGENT_VERSION = "2.0.11"
 GITHUB_REPO = "ondravaculik03/bakalarka_public"
 
 
@@ -25,10 +25,11 @@ def get_latest_release_data():
     return None
 
 
-def _pick_zip_asset(release_data):
-    """Vybere první asset, který je ZIP balíček."""
+def _find_versioned_exe_asset(release_data, exe_prefix):
+    """Najde asset, který začíná na exe_prefix a končí na .exe (ignoruje verzi v názvu)."""
     for asset in release_data.get("assets", []):
-        if asset.get("name", "").lower().endswith(".zip"):
+        name = asset.get("name", "").lower()
+        if name.startswith(exe_prefix.lower()) and name.endswith(".exe"):
             return asset
     return None
 
@@ -101,7 +102,7 @@ def is_newer_version(latest):
 
 
 def update_agent(args=None):
-    """Provede kontrolu releasu a stazeni ZIP balicku do docasne slozky."""
+    """Provede kontrolu releasu a stazeni všech .exe souborů do docasne slozky (podporuje verzované názvy)."""
     try:
         # 1) Načti data o posledním releasu.
         release_data = get_latest_release_data()
@@ -114,36 +115,40 @@ def update_agent(args=None):
             logging.info("Aplikace je aktuální.")
             return False
 
-        # 3) Najdi ZIP asset v releasu.
-        asset = _pick_zip_asset(release_data)
-        if not asset:
-            logging.warning("Release neobsahuje ZIP asset.")
-            return False
+        # 3) Najdi všechny potřebné exe assety v releasu podle prefixu.
+        exe_map = {
+            "agent-service": "agent-service.exe",
+            "agent-cli": "agent-cli.exe",
+            "agent-updater": "agent-updater.exe",
+        }
+        assets = {}
+        for prefix, target_name in exe_map.items():
+            asset = _find_versioned_exe_asset(release_data, prefix)
+            if not asset:
+                logging.warning(f"Release neobsahuje asset pro {prefix}.")
+                return False
+            assets[target_name] = asset
 
-        # 4) Stáhni ZIP do dočasné složky.
+        # 4) Stáhni všechny exe soubory do dočasné složky pod pevnými názvy.
         tmp_dir = Path(tempfile.mkdtemp(prefix="agent-update-"))
-        zip_path = tmp_dir / asset["name"]
-        unpack_dir = tmp_dir / "unpacked"
-        unpack_dir.mkdir(parents=True, exist_ok=True)
+        for target_name, asset in assets.items():
+            exe_path = tmp_dir / target_name
+            _download_asset(asset["browser_download_url"], exe_path)
 
-        # rozbalíme ZIP
-        _download_asset(asset["browser_download_url"], zip_path)
-        _extract_zip(zip_path, unpack_dir)
-
-        # hledáme updater.exe v rozbaleném obsahu
-        updater_path = _find_file(unpack_dir, "updater.exe")
-        if not updater_path:
-            logging.warning("ZIP neobsahuje updater.exe")
+        # 5) Najdi agent-updater.exe v dočasné složce
+        updater_path = tmp_dir / "agent-updater.exe"
+        if not updater_path.exists():
+            logging.warning("Nebyl stažen agent-updater.exe")
             return False
 
-        # spustíme updater jako samostatný proces, který se postará o aktualizaci
-        _launch_updater(updater_path, unpack_dir)
+        # 6) Spusť updater jako samostatný proces, který se postará o aktualizaci
+        _launch_updater(updater_path, tmp_dir)
 
         # u zabalené verze ukončíme proces, aby updater mohl přepsat exe
         if getattr(sys, "frozen", False):
             _terminate_current_process()
 
-        logging.info(f"ZIP balicek stazen do: {zip_path}")
+        logging.info(f"Staženy nové exe soubory do: {tmp_dir}")
         return True
     except Exception as e:
         logging.warning(f"Aktualizace selhala: {e}")

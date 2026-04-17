@@ -19,7 +19,7 @@ if dist_dir.exists():
 print("=== Building Agent Service ===")
 PyInstaller.__main__.run(
     [
-        str(src_dir / "main.py"),
+        str(src_dir / "agent-service.py"),
         "--name=agent-service",
         "--onefile",
         "--noconsole",
@@ -34,7 +34,7 @@ PyInstaller.__main__.run(
 print("\n=== Building CLI Tool ===")
 PyInstaller.__main__.run(
     [
-        str(src_dir / "cli.py"),
+        str(src_dir / "agent-cli.py"),
         "--name=agent-cli",
         "--onefile",
         "--console",
@@ -47,8 +47,8 @@ PyInstaller.__main__.run(
 print("\n=== Building Updater Helper ===")
 PyInstaller.__main__.run(
     [
-        str(src_dir / "updater_helper.py"),
-        "--name=updater",
+        str(src_dir / "agent-updater.py"),
+        "--name=agent-updater",
         "--onefile",
         "--console",
         f"--distpath={dist_dir}",
@@ -60,4 +60,4 @@ print("\nBuild dokončen!")
 print(f"Soubory jsou v: {dist_dir}")
 print("  - agent-service.exe")
 print("  - agent-cli.exe")
-print("  - updater.exe")
+print("  - agent-updater.exe")

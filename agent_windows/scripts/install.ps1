@@ -19,20 +19,23 @@ try {
     exit 1
 }
 
-$agentAsset = $release.assets | Where-Object { $_.name -eq "agent-service.exe" }
-$cliAsset   = $release.assets | Where-Object { $_.name -eq "agent-cli.exe" }
+
+# Najdi agent-service a agent-cli .exe soubory podle prefixu a přípony
+$agentAsset = $release.assets | Where-Object { $_.name -like "agent-service*.exe" }
+$cliAsset   = $release.assets | Where-Object { $_.name -like "agent-cli*.exe" }
 
 if (-not $agentAsset -or -not $cliAsset) {
-    Write-Error "Nepodařilo se najít potřebné binárky (agent-service.exe nebo agent-cli.exe) v release."
+    Write-Error "Nepodařilo se najít potřebné binárky (agent-service*.exe nebo agent-cli*.exe) v release."
     exit 1
 }
 
-$agentUrl = $agentAsset.browser_download_url
-$cliUrl   = $cliAsset.browser_download_url
+$agentUrl = $agentAsset[0].browser_download_url
+$cliUrl   = $cliAsset[0].browser_download_url
 
 $temp = "$env:TEMP\monitoring-agent"
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
+# Stáhni a ulož pod pevnými názvy
 Invoke-WebRequest -Uri $agentUrl -OutFile "$temp\agent-service.exe"
 Invoke-WebRequest -Uri $cliUrl -OutFile "$temp\agent-cli.exe"
 
