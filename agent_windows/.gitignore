@@ -12,6 +12,7 @@ __pycache__/
 .idea/
 *.sublime-project
 *.sublime-workspace
+.vs/
 
 # OS
 .DS_Store

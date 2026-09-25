@@ -4,6 +4,9 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 
+logger = logging.getLogger(__name__)
+
+
 class PublicKeyFetcher:
     def __init__(self, server_url: str):
         self.server_url = server_url
@@ -20,5 +23,5 @@ class PublicKeyFetcher:
             self._public_key = public_key
             return public_key
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error fetching public key from {self.server_url}: {e}")
+            logger.error(f"Error fetching public key from {self.server_url}: {e}")
             raise

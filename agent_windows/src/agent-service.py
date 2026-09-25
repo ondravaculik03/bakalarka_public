@@ -1,4 +1,3 @@
-import getpass
 import json
 import logging
 import os
@@ -24,16 +23,18 @@ logging.basicConfig(
     filemode="a",
 )
 
+logger = logging.getLogger(__name__)
+
 
 # PROMĚNNÁ PRO BEZPEČNOST
 class Agent:
     def __init__(self):
         cfg = config.load()
-        self.agent_id = os.getenv("AGENT_ID", "unknown_agent")
+        self.agent_id = cfg.get("agent_id")
         self.server_url = cfg.get("server_url", "http://localhost:8000")
         self.auth_token = cfg.get("auth_token", "")
         if not self.auth_token or self.auth_token == "NOT_CONFIGURED":
-            logging.error(
+            logger.error(
                 "Chyba: 'auth_token' není nastaven. Spusť 'agent-cli set auth_token <token>'"
             )
             sys.exit(1)
@@ -48,9 +49,7 @@ class Agent:
     def _fetch_public_key(self):
         return self._public_key_fetcher.fetch_public_key()
 
-    def send_message(
-        self, content, hostname, client_ip, client_os, client_state, client_points
-    ):
+    def send_message(self, content):
         """Pošle šifrovanou zprávu na server (AES-GCM + RSA-OAEP)."""
         try:
             public_key = self._fetch_public_key()
@@ -66,44 +65,26 @@ class Agent:
                 encrypted_key_b64,
                 nonce_b64,
                 ciphertext_b64,
-                client_ip,
                 self.message_count,
-                client_os,
-                client_state,
-                client_points,
             )
 
         except requests.exceptions.RequestException as e:
-            logging.error(
+            logger.error(
                 "%s: Chyba při odesílání nebo získávání klíče - %s", self.agent_id, e
             )
             return False
 
     def start_agent(self):
         """Spustí agenta - periodicky posílá zprávy"""
-        logging.info("Agent %s startuje...", self.agent_id)
-        logging.info("Cílová URL: %s", self.server_url)
+        logger.info("Agent %s startuje...", self.agent_id)
+        logger.info("Cílová URL: %s", self.server_url)
 
         self.message_count += 1  # Increment instance message_count
         system_info = self._system_info_reporter.report_system_info()
 
-        # Extract values for message sending
-        hostname = system_info.get("hostname", "unknown-host")
-        client_ip = system_info.get("client_ip", "N/A")
-        client_os = system_info.get("os", "unknown-os")
-        client_state = system_info.get("state", "unknown-state")
-        client_points = system_info.get("points", 0)
-
         content = json.dumps(system_info, ensure_ascii=False)
 
-        self.send_message(
-            content,
-            hostname,
-            client_ip,
-            client_os,
-            client_state,
-            client_points,
-        )
+        self.send_message(content)
 
 
 if __name__ == "__main__":

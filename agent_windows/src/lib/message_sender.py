@@ -3,6 +3,8 @@ import logging
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 
 class MessageSender:
     def __init__(self, server_url: str, agent_id: str):
@@ -14,19 +16,11 @@ class MessageSender:
         encrypted_key_b64: str,
         nonce_b64: str,
         ciphertext_b64: str,
-        client_ip: str,
         message_count: int,
-        client_os: str,
-        client_state: str,
-        client_points: int,
     ):
         headers = {"Content-Type": "application/json"}
         payload = {
             "agent_id": self.agent_id,
-            "client_ip": client_ip,
-            "client_os": client_os,
-            "client_state": client_state,
-            "client_points": client_points,
             "encrypted_key": encrypted_key_b64,
             "nonce": nonce_b64,
             "ciphertext": ciphertext_b64,
@@ -38,20 +32,23 @@ class MessageSender:
             )
 
             if response.status_code == 200:
-                logging.info(
+                logger.info(
                     "%s: Zpráva doručena - Celkem odesláno: %d",
                     self.agent_id,
                     message_count,
                 )
                 return True
             else:
-                logging.error(
-                    "%s: Chyba při odesílání - %s", self.agent_id, response.status_code
+                logger.error(
+                    "%s: Chyba při odesílání - %s - %s",
+                    self.agent_id,
+                    response.status_code,
+                    response.text,
                 )
                 return False
 
         except requests.exceptions.ConnectionError:
-            logging.error(
+            logger.error(
                 "%s: Nelze se připojit k serveru %s", self.agent_id, self.server_url
             )
             return False

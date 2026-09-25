@@ -9,11 +9,13 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def status(args):  # args parameter for consistency
     cfg = config.load()
-    logging.info("\nAktuální konfigurace:")
-    logging.info(json.dumps(cfg, indent=2))
+    logger.info("\nAktuální konfigurace:")
+    logger.info(json.dumps(cfg, indent=2))
 
 
 def set_value(args):  # args parameter for consistency
@@ -27,29 +29,28 @@ def set_value(args):  # args parameter for consistency
         try:
             value_int = int(value)
             if value_int <= 0:
-                logging.error("interval_seconds musí být celé číslo větší než 0")
+                logger.error("interval_seconds musí být celé číslo větší než 0")
                 return
             value = value_int
         except ValueError:
-            logging.error("interval_seconds musí být celé číslo")
+            logger.error("interval_seconds musí být celé číslo")
             return
     elif key == "server_url":
         # Basic URL validation
-        if not (value.startswith("http://") or value.startswith("https://")):
-            logging.error("server_url musí začínat 'http://' nebo 'https://'")
+        if not value.startswith(("http://", "https://")):
+            logger.error("server_url musí začínat 'http://' nebo 'https://'")
             return
-    elif key == "auth_token":
-        if not value:
-            logging.error("auth_token nesmí být prázdný")
-            return
+    elif key == "auth_token" and not value:
+        logger.error("auth_token nesmí být prázdný")
+        return
 
     cfg[key] = value
     config.save(cfg)
-    logging.info("✓ Nastaveno: %s = %s", key, value)
-    logging.info("\nRestartuj službu pro aktivaci změn")
+    logger.info("✓ Nastaveno: %s = %s", key, value)
+    logger.info("\nRestartuj službu pro aktivaci změn")
 
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="agent-cli",
         description="CLI nástroj pro správu Mastiff agenta.",
@@ -113,7 +114,3 @@ def main():
         args.func(args)
     else:
         parser.print_help()
-
-
-if __name__ == "__main__":
-    main()

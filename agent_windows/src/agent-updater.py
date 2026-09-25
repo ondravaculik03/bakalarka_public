@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 
 def _wait_for_process_exit(process_id, timeout_seconds=300):
     """Počká na ukončení procesu podle PID."""
@@ -73,7 +75,7 @@ def run_update(install_dir, package_dir, process_id):
     target_cli = install_dir / "agent-cli.exe"
 
     if not service_exe or not cli_exe:
-        logging.warning("Balíček neobsahuje požadované exe soubory.")
+        logger.warning("Balíček neobsahuje požadované exe soubory.")
         return False
 
     try:

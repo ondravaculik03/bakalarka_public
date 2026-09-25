@@ -3,12 +3,14 @@ import os
 import subprocess
 import sys
 import tempfile
-import zipfile
 from pathlib import Path
 
 import requests
 
-AGENT_VERSION = "2.0.11"
+from src import __version__ as AGENT_VERSION
+
+logger = logging.getLogger(__name__)
+
 GITHUB_REPO = "ondravaculik03/bakalarka_public"
 
 
@@ -19,9 +21,9 @@ def get_latest_release_data():
         resp = requests.get(url, timeout=5)
         if resp.status_code == 200:
             return resp.json()
-        logging.warning(f"GitHub API returned {resp.status_code}")
+        logger.warning(f"GitHub API returned {resp.status_code}")
     except Exception as e:
-        logging.warning(f"Failed to check GitHub release: {e}")
+        logger.warning(f"Failed to check GitHub release: {e}")
     return None
 
 
@@ -42,18 +44,6 @@ def _download_asset(url, output_path):
         for chunk in resp.iter_content(chunk_size=64 * 1024):
             if chunk:
                 f.write(chunk)
-
-
-def _extract_zip(zip_path, target_dir):
-    """Rozbalí ZIP do cílové složky."""
-    with zipfile.ZipFile(zip_path, "r") as archive:
-        archive.extractall(target_dir)
-
-
-def _find_file(root_dir, file_name):
-    """Najde soubor podle názvu v rozbaleném obsahu."""
-    matches = list(Path(root_dir).rglob(file_name))
-    return matches[0] if matches else None
 
 
 def _launch_updater(updater_path, unpack_dir):
@@ -112,7 +102,7 @@ def update_agent(args=None):
         # 2) Ověř, že release obsahuje novější verzi.
         latest = release_data.get("tag_name")
         if not latest or not is_newer_version(latest):
-            logging.info("Aplikace je aktuální.")
+            logger.info("Aplikace je aktuální.")
             return False
 
         # 3) Najdi všechny potřebné exe assety v releasu podle prefixu.
@@ -125,7 +115,7 @@ def update_agent(args=None):
         for prefix, target_name in exe_map.items():
             asset = _find_versioned_exe_asset(release_data, prefix)
             if not asset:
-                logging.warning(f"Release neobsahuje asset pro {prefix}.")
+                logger.warning(f"Release neobsahuje asset pro {prefix}.")
                 return False
             assets[target_name] = asset
 
@@ -138,7 +128,7 @@ def update_agent(args=None):
         # 5) Najdi agent-updater.exe v dočasné složce
         updater_path = tmp_dir / "agent-updater.exe"
         if not updater_path.exists():
-            logging.warning("Nebyl stažen agent-updater.exe")
+            logger.warning("Nebyl stažen agent-updater.exe")
             return False
 
         # 6) Spusť updater jako samostatný proces, který se postará o aktualizaci
@@ -148,10 +138,10 @@ def update_agent(args=None):
         if getattr(sys, "frozen", False):
             _terminate_current_process()
 
-        logging.info(f"Staženy nové exe soubory do: {tmp_dir}")
+        logger.info(f"Staženy nové exe soubory do: {tmp_dir}")
         return True
     except Exception as e:
-        logging.warning(f"Aktualizace selhala: {e}")
+        logger.warning(f"Aktualizace selhala: {e}")
         return False
 
 
@@ -165,7 +155,7 @@ def check_for_update(
     latest = get_latest_github_version()
 
     if latest and is_newer_version(latest):
-        logging.info(f"Nová verze dostupná: {latest}. Aktuální: {AGENT_VERSION}")
+        logger.info(f"Nová verze dostupná: {latest}. Aktuální: {AGENT_VERSION}")
         if auto_update:
             update_agent()
         else:
@@ -177,6 +167,6 @@ def check_for_update(
             if response == "y":
                 update_agent()
             else:
-                logging.info("Aktualizace byla zrušena uživatelem.")
+                logger.info("Aktualizace byla zrušena uživatelem.")
     else:
-        logging.info("Aplikace je aktuální.")
+        logger.info("Aplikace je aktuální.")
