@@ -100,6 +100,20 @@ try {
     $errors += "firewall"
 }
 
+try {
+    # productState isn't documented by Microsoft - bit 0x1000 = enabled and
+    # bit 0x10 = signatures out of date is the commonly used decoding.
+    $result.antivirus_products = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object {
+        [PSCustomObject]@{
+            name = [string]$_.displayName
+            enabled = (([int]$_.productState -band 0x1000) -ne 0)
+            up_to_date = (([int]$_.productState -band 0x10) -eq 0)
+        }
+    })
+} catch {
+    $errors += "security_center"
+}
+
 $result._errors = $errors
 [PSCustomObject]$result | ConvertTo-Json -Compress -Depth 5
 """
@@ -130,6 +144,7 @@ _PROTECTION_STATUS_GROUPS = {
         "firewall_private_enabled",
         "firewall_public_enabled",
     ),
+    "security_center": ("antivirus_products",),
 }
 
 # One consolidated call for patch/account/exposure hygiene, same
