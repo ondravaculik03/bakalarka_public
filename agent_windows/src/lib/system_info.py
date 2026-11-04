@@ -5,7 +5,6 @@ import re
 import socket
 import subprocess
 import time
-from datetime import date
 
 from src import __version__ as AGENT_VERSION
 
@@ -21,11 +20,16 @@ _CIM_SCRIPT = (
     "$cs = Get-CimInstance -ClassName Win32_ComputerSystem; "
     "$os = Get-CimInstance -ClassName Win32_OperatingSystem; "
     "$bios = Get-CimInstance -ClassName Win32_BIOS; "
+    # SilentlyContinue, so a failed registry read only leaves os_edition
+    # empty instead of failing the whole script.
+    r"$edition = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue).EditionID; "
     "[PSCustomObject]@{ "
     "current_user = $cs.UserName; "
     "os_version = $os.Version; "
     "os_build = $os.BuildNumber; "
     "serial_number = $bios.SerialNumber; "
+    "os_name = ([string]$os.Caption).Trim(); "
+    "os_edition = $edition; "
     # Reused by general-health's uptime_seconds instead of a second
     # Win32_OperatingSystem query - not itself an identity field, so it's
     # deliberately left out of _CIM_FIELDS below.
@@ -33,7 +37,14 @@ _CIM_SCRIPT = (
     "} | ConvertTo-Json -Compress"
 )
 
-_CIM_FIELDS = ("current_user", "os_version", "os_build", "serial_number")
+_CIM_FIELDS = (
+    "current_user",
+    "os_version",
+    "os_build",
+    "serial_number",
+    "os_name",
+    "os_edition",
+)
 
 # One consolidated Defender/firewall query, grouped into independent
 # try/catch blocks per source cmdlet so one failing group (e.g. Defender
@@ -356,33 +367,6 @@ def _parse_dotnet_json_date_ms(value):
     return int(match.group(1))
 
 
-# Generalized consumer (Home/Pro) end-of-support dates per major Windows
-# release, keyed by build number range. Not exhaustive (doesn't track
-# Enterprise/LTSC extended support, or every point release) and needs
-# manual updates as new releases ship / EOL dates are announced - accepted
-# limitation, not a bug. (min_build, max_build, end_of_support_date).
-_WINDOWS_EOL_TABLE = (
-    (10240, 19045, date(2025, 10, 14)),  # Windows 10, all editions
-    (22000, 22000, date(2023, 10, 10)),  # Windows 11 21H2
-    (22621, 22621, date(2024, 10, 8)),  # Windows 11 22H2
-    (22631, 22631, date(2025, 11, 11)),  # Windows 11 23H2
-    (26100, 26100, date(2026, 10, 13)),  # Windows 11 24H2
-)
-
-
-def _os_support_status(os_build):
-    try:
-        build_number = int(str(os_build).split(".")[0])
-    except (TypeError, ValueError):
-        return "unknown"
-
-    for min_build, max_build, end_of_support in _WINDOWS_EOL_TABLE:
-        if min_build <= build_number <= max_build:
-            return "eol" if date.today() > end_of_support else "supported"
-
-    return "unknown"
-
-
 def _run_powershell(script):
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     result = subprocess.run(
@@ -495,12 +479,6 @@ def _collect_hygiene(identity, collection_errors):
         "account_hygiene": {},
         "exposure_hardening": {},
     }
-
-    os_build = identity.get("os_build")
-    if os_build:
-        sections["patch_hygiene"]["os_support_status"] = _os_support_status(os_build)
-    else:
-        collection_errors.append("os_support_status")
 
     try:
         raw = _run_powershell(_HYGIENE_SCRIPT)
