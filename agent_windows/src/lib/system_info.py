@@ -33,7 +33,11 @@ _CIM_SCRIPT = (
     # Reused by general-health's uptime_seconds instead of a second
     # Win32_OperatingSystem query - not itself an identity field, so it's
     # deliberately left out of _CIM_FIELDS below.
-    "os_last_boot_time = $os.LastBootUpTime "
+    "os_last_boot_time = $os.LastBootUpTime; "
+    # Raw numbers, turned into device_type by _device_type - also left out
+    # of _CIM_FIELDS.
+    "pc_system_type = $cs.PCSystemType; "
+    "product_type = $os.ProductType "
     "} | ConvertTo-Json -Compress"
 )
 
@@ -389,6 +393,24 @@ def _get_ip_addresses():
     return sorted({addr[4][0] for addr in addr_infos})
 
 
+def _device_type(product_type, pc_system_type):
+    """Turns Win32_OperatingSystem.ProductType and
+    Win32_ComputerSystem.PCSystemType into one word. ProductType goes first,
+    servers often report PCSystemType 1 (Desktop). Virtual machines aren't
+    detected, they report Desktop."""
+    if product_type in (2, 3):
+        return "Server"
+    if pc_system_type == 2:
+        return "Laptop"
+    if pc_system_type == 8:
+        return "Tablet"
+    if pc_system_type in (1, 3):
+        return "Desktop"
+    if pc_system_type is None:
+        return None
+    return "Other"
+
+
 def _collect_identity(collection_errors):
     """Returns (identity, os_last_boot_time_raw). The second value isn't an
     identity field itself - it's handed to _collect_general_health so
@@ -432,9 +454,17 @@ def _collect_identity(collection_errors):
             else:
                 identity[field] = value
         os_last_boot_time_raw = cim_identity.get("os_last_boot_time")
+        device_type = _device_type(
+            cim_identity.get("product_type"), cim_identity.get("pc_system_type")
+        )
+        if device_type is None:
+            collection_errors.append("device_type")
+        else:
+            identity["device_type"] = device_type
     except Exception:
         logger.exception("Nepodařilo se zjistit informace přes CIM/WMI")
         collection_errors.extend(_CIM_FIELDS)
+        collection_errors.append("device_type")
 
     return identity, os_last_boot_time_raw
 
