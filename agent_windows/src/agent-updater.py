@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def _wait_for_process_exit(process_id, timeout_seconds=300):
-    """Počká na ukončení procesu podle PID."""
+    """Waits until the process with the given PID exits."""
     if os.name != "nt":
         return
 
@@ -30,7 +30,7 @@ def _wait_for_process_exit(process_id, timeout_seconds=300):
 
 
 def _backup_and_replace(target_path, source_path):
-    """Zálohuje původní soubor a nahradí ho novou verzí."""
+    """Backs up the original file and replaces it with the new version."""
     target_path = Path(target_path)
     source_path = Path(source_path)
     backup_path = target_path.with_suffix(target_path.suffix + ".bak")
@@ -46,26 +46,26 @@ def _backup_and_replace(target_path, source_path):
 
 
 def _restart_service(service_exe):
-    """Spustí novou verzi služby po aktualizaci."""
+    """Starts the new version of the service after the update."""
     service_exe = Path(service_exe)
     subprocess.Popen([str(service_exe)], cwd=str(service_exe.parent))
 
 
 def _find_file(root_dir, file_name):
-    """Najde soubor podle názvu i v podsložkách balíčku."""
+    """Finds a file by name, also in the package's subfolders."""
     matches = list(Path(root_dir).rglob(file_name))
     return matches[0] if matches else None
 
 
 def _cleanup_temp_files(package_dir):
-    """Odstraní dočasné soubory po aktualizaci."""
+    """Removes the temporary files after the update."""
     package_dir = Path(package_dir)
     temp_root = package_dir.parent
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def run_update(install_dir, package_dir, process_id):
-    """Provede výměnu souborů a restart služby."""
+    """Replaces the files and restarts the service."""
     install_dir = Path(install_dir)
     package_dir = Path(package_dir)
 
@@ -75,7 +75,7 @@ def run_update(install_dir, package_dir, process_id):
     target_cli = install_dir / "agent-cli.exe"
 
     if not service_exe or not cli_exe:
-        logger.warning("Balíček neobsahuje požadované exe soubory.")
+        logger.warning("The package doesn't contain the required exe files.")
         return False
 
     try:
@@ -89,7 +89,8 @@ def run_update(install_dir, package_dir, process_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Pomocný updater pro Mastiff agenta.")
+    """Reads the arguments and runs the update."""
+    parser = argparse.ArgumentParser(description="Helper updater for the Mastiff agent.")
     parser.add_argument("--install-dir", required=True)
     parser.add_argument("--package-dir", required=True)
     parser.add_argument("--pid", required=True, type=int)

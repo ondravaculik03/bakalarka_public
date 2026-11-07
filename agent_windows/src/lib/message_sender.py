@@ -18,6 +18,7 @@ class MessageSender:
         ciphertext_b64: str,
         message_count: int,
     ):
+        """Sends the encrypted check-in to the server, returns True on success."""
         headers = {"Content-Type": "application/json"}
         payload = {
             "agent_id": self.agent_id,
@@ -33,14 +34,14 @@ class MessageSender:
 
             if response.status_code == 200:
                 logger.info(
-                    "%s: Zpráva doručena - Celkem odesláno: %d",
+                    "%s: Check-in delivered - sent in total: %d",
                     self.agent_id,
                     message_count,
                 )
                 return True
             else:
                 logger.error(
-                    "%s: Chyba při odesílání - %s - %s",
+                    "%s: Sending failed - %s - %s",
                     self.agent_id,
                     response.status_code,
                     response.text,
@@ -49,6 +50,6 @@ class MessageSender:
 
         except requests.exceptions.ConnectionError:
             logger.error(
-                "%s: Nelze se připojit k serveru %s", self.agent_id, self.server_url
+                "%s: Can't connect to the server %s", self.agent_id, self.server_url
             )
             return False

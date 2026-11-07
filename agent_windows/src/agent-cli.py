@@ -12,105 +12,92 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def status(args):  # args parameter for consistency
+def status(args):  # args posílá argparse, i když je funkce nepoužije
+    """Prints the agent's current configuration."""
     cfg = config.load()
-    logger.info("\nAktuální konfigurace:")
+    logger.info("\nCurrent configuration:")
     logger.info(json.dumps(cfg, indent=2))
 
 
-def set_value(args):  # args parameter for consistency
+def set_value(args):
+    """Checks and saves one configuration value."""
     cfg = config.load()
 
     key = args.key
     value = args.value
 
-    # Převod na správný typ a validace
-    if key == "interval_seconds":
-        try:
-            value_int = int(value)
-            if value_int <= 0:
-                logger.error("interval_seconds musí být celé číslo větší než 0")
-                return
-            value = value_int
-        except ValueError:
-            logger.error("interval_seconds musí být celé číslo")
-            return
-    elif key == "server_url":
-        # Basic URL validation
+    # Kontrola hodnoty
+    if key == "server_url":
         if not value.startswith(("http://", "https://")):
-            logger.error("server_url musí začínat 'http://' nebo 'https://'")
+            logger.error("server_url must start with 'http://' or 'https://'")
             return
     elif key == "auth_token" and not value:
-        logger.error("auth_token nesmí být prázdný")
+        logger.error("auth_token must not be empty")
         return
 
     cfg[key] = value
     config.save(cfg)
-    logger.info("✓ Nastaveno: %s = %s", key, value)
-    logger.info("\nRestartuj službu pro aktivaci změn")
+    logger.info("Set: %s = %s", key, value)
+    logger.info("\nThe change applies at the agent's next run.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="agent-cli",
-        description="CLI nástroj pro správu Mastiff agenta.",
-        formatter_class=argparse.RawTextHelpFormatter,  # To preserve newlines in description
+        description="CLI tool for managing the Mastiff agent.",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {updater.AGENT_VERSION}",
-        help="Zobrazí verzi agenta.",
+        help="Shows the agent version.",
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Dostupné příkazy")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Status command
     status_parser = subparsers.add_parser(
         "status",
-        help="Zobrazí aktuální konfiguraci agenta.",
-        description="Zobrazí aktuální konfiguraci Mastiff agenta, včetně server_url, interval_seconds a log_level.",
+        help="Shows the agent's current configuration.",
+        description="Shows the Mastiff agent's current configuration.",
     )
     status_parser.set_defaults(func=status)
 
-    # Set command
     set_parser = subparsers.add_parser(
         "set",
-        help="Nastaví hodnotu v konfiguraci agenta.",
-        description="Nastaví hodnotu pro specifický konfigurační klíč. Podporuje validaci pro 'interval_seconds', 'server_url' a 'auth_token'.",
+        help="Sets a value in the agent's configuration.",
+        description="Sets the value of one configuration key. Checks 'server_url' and 'auth_token'.",
     )
     set_parser.add_argument(
         "key",
-        choices=["server_url", "interval_seconds", "log_level", "auth_token"],
-        help="Název konfiguračního klíče (server_url, interval_seconds, log_level, auth_token).",
+        choices=["server_url", "auth_token"],
+        help="Name of the configuration key (server_url, auth_token).",
     )
-    set_parser.add_argument("value", help="Nová hodnota pro daný konfigurační klíč.")
+    set_parser.add_argument("value", help="The new value for the key.")
     set_parser.set_defaults(func=set_value)
 
-    # Check-update command
     check_update_parser = subparsers.add_parser(
         "check-update",
-        help="Zkontroluje dostupnost nové verze agenta.",
-        description="Zkontroluje, zda je dostupná nová verze Mastiff agenta.",
+        help="Checks whether a new agent version is available.",
+        description="Checks whether a new version of the Mastiff agent is available.",
     )
     check_update_parser.add_argument(
         "--auto",
         action="store_true",
-        help="Při dostupné nové verzi provede aktualizaci bez potvrzení.",
+        help="Updates without asking when a new version is available.",
     )
     check_update_parser.set_defaults(func=updater.check_for_update)
 
-    # Update command
     update_parser = subparsers.add_parser(
         "update",
-        help="Aktualizuje agenta na nejnovější verzi.",
-        description="Aktualizuje Mastiff agenta na nejnovější verzi dostupnou na GitHubu.",
+        help="Updates the agent to the latest version.",
+        description="Updates the Mastiff agent to the latest version on GitHub.",
     )
     update_parser.set_defaults(func=updater.update_agent)
 
     args = parser.parse_args()
 
-    if args.command:  # Ensure a command was passed
+    if args.command:
         args.func(args)
     else:
         parser.print_help()

@@ -10,18 +10,15 @@ from src import __version__ as AGENT_VERSION
 
 logger = logging.getLogger(__name__)
 
-# Single Get-CimInstance query for the fields that must reflect the real,
-# interactively logged-in console session rather than the identity of the
-# process running the query. The agent runs as SYSTEM via a scheduled task,
-# so something like getpass.getuser() would just report "SYSTEM" here -
-# Win32_ComputerSystem.UserName correctly reports who's logged into the
-# console regardless of who/what is asking.
+# Jeden CIM dotaz na pole identity. Agent běží jako SYSTEM (scheduled task),
+# takže getpass.getuser() by vrátil "SYSTEM" - Win32_ComputerSystem.UserName
+# vrací uživatele přihlášeného ke konzoli, ať se ptá kdokoli.
 _CIM_SCRIPT = (
     "$cs = Get-CimInstance -ClassName Win32_ComputerSystem; "
     "$os = Get-CimInstance -ClassName Win32_OperatingSystem; "
     "$bios = Get-CimInstance -ClassName Win32_BIOS; "
-    # SilentlyContinue, so a failed registry read only leaves os_edition
-    # empty instead of failing the whole script.
+    # SilentlyContinue, aby chyba při čtení registru nechala prázdné jen
+    # os_edition a neshodila celý skript.
     r"$edition = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue).EditionID; "
     "[PSCustomObject]@{ "
     "current_user = $cs.UserName; "
@@ -30,12 +27,11 @@ _CIM_SCRIPT = (
     "serial_number = $bios.SerialNumber; "
     "os_name = ([string]$os.Caption).Trim(); "
     "os_edition = $edition; "
-    # Reused by general-health's uptime_seconds instead of a second
-    # Win32_OperatingSystem query - not itself an identity field, so it's
-    # deliberately left out of _CIM_FIELDS below.
+    # Použije se pro uptime_seconds v general health, ať není druhý dotaz na
+    # Win32_OperatingSystem. Není to pole identity, proto chybí v _CIM_FIELDS.
     "os_last_boot_time = $os.LastBootUpTime; "
-    # Raw numbers, turned into device_type by _device_type - also left out
-    # of _CIM_FIELDS.
+    # Surová čísla, _device_type z nich udělá device_type. Taky chybí
+    # v _CIM_FIELDS.
     "pc_system_type = $cs.PCSystemType; "
     "product_type = $os.ProductType "
     "} | ConvertTo-Json -Compress"
@@ -50,11 +46,10 @@ _CIM_FIELDS = (
     "os_edition",
 )
 
-# One consolidated Defender/firewall query, grouped into independent
-# try/catch blocks per source cmdlet so one failing group (e.g. Defender
-# not installed) doesn't take out unrelated groups (e.g. firewall state).
-# Each group reports its own name into `_errors` on failure instead of
-# leaving partial/inconsistent data in the group's fields.
+# Jeden dotaz na Defender a firewall. Každý cmdlet má vlastní try/catch, aby
+# chyba jedné skupiny (třeba chybějící Defender) neshodila ostatní (třeba
+# firewall). Skupina, která selže, zapíše svůj název do _errors místo
+# neúplných dat.
 _PROTECTION_STATUS_SCRIPT = r"""
 $result = @{}
 $errors = @()
@@ -84,17 +79,15 @@ try {
 try {
     $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isElevated) {
-        # Get-MpPreference doesn't throw when unprivileged - ExclusionPath
-        # just comes back as a one-element array holding a "must be an
-        # administrator" message instead of real paths. Checking elevation
-        # directly is more reliable than pattern-matching that message
-        # (wording/locale could change it).
+        # Get-MpPreference bez admina nespadne, jen v ExclusionPath vrátí
+        # hlášku "must be an administrator" místo cest. Kontrola práv je
+        # spolehlivější než hledat tu hlášku (text i jazyk se můžou změnit).
         throw "not running elevated, cannot read AV exclusions"
     }
     $rawExclusionPaths = (Get-MpPreference).ExclusionPath
-    # @($null) is a one-element array containing null, not an empty array -
-    # wrapping a possibly-$null property (as opposed to pipeline output,
-    # which doesn't have this problem) needs an explicit null check first.
+    # @($null) je pole s jedním prvkem null, ne prázdné pole. U vlastnosti,
+    # která může být $null (výstup pipeline tenhle problém nemá), je potřeba
+    # nejdřív kontrola na null.
     if ($null -eq $rawExclusionPaths) {
         $paths = @()
     } else {
@@ -116,8 +109,8 @@ try {
 }
 
 try {
-    # productState isn't documented by Microsoft - bit 0x1000 = enabled and
-    # bit 0x10 = signatures out of date is the commonly used decoding.
+    # productState Microsoft nedokumentuje - bit 0x1000 = zapnuto a bit 0x10 =
+    # zastaralé signatury je běžně používané čtení.
     $result.antivirus_products = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object {
         [PSCustomObject]@{
             name = [string]$_.displayName
@@ -133,8 +126,8 @@ $result._errors = $errors
 [PSCustomObject]$result | ConvertTo-Json -Compress -Depth 5
 """
 
-# Maps each try/catch group above to the payload field names it owns, so a
-# group failure can be turned into the right collection_errors entries.
+# Ke každé try/catch skupině výše její pole, aby se selhání skupiny dalo
+# převést na správné položky v collection_errors.
 _PROTECTION_STATUS_GROUPS = {
     "defender_status": (
         "av_enabled",
@@ -162,10 +155,9 @@ _PROTECTION_STATUS_GROUPS = {
     "security_center": ("antivirus_products",),
 }
 
-# One consolidated call for patch/account/exposure hygiene, same
-# independent-try/catch-per-group shape as protection status above.
-# `outdated_apps` (winget) is deliberately not collected here - see
-# `_collect_hygiene`'s docstring.
+# Jeden dotaz na patch/account/exposure hygiene, každá skupina má vlastní
+# try/catch jako u protection status. outdated_apps (winget) se záměrně
+# nesbírá - viz komentář v _collect_hygiene.
 _HYGIENE_SCRIPT = r"""
 $result = @{}
 $errors = @()
@@ -183,24 +175,21 @@ try {
 try {
     $cbsPending = Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'
     $wuPending = Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
-    # Distinct from av_reboot_required (protection_status): this is "an
-    # update installed but not yet rebooted into", not Defender finishing
-    # malware remediation.
+    # Není to av_reboot_required (protection_status): tady jde o nainstalovaný
+    # update, který čeká na restart, ne o Defender, který dokončuje čištění.
     $result.windows_update_reboot_pending = [bool]($cbsPending -or $wuPending)
 } catch {
     $errors += "patch_reboot_pending"
 }
 
 try {
-    # ADSI, not Get-LocalGroupMember: that cmdlet throws ("Failed to
-    # compare two elements in the array") when the Administrators group
-    # contains a Microsoft-Account-linked sign-in, which is a common
-    # real-world setup, not an edge case. WinNT://./Administrators,group
-    # enumerates the same membership without going through the .NET type
-    # comparison that breaks on mixed local/MSA members.
+    # ADSI, ne Get-LocalGroupMember: ten spadne ("Failed to compare two
+    # elements in the array"), když je ve skupině Administrators účet
+    # propojený s Microsoft účtem. WinNT://./Administrators,group vrátí stejné
+    # členy bez porovnání .NET typů, které na smíšených členech padá.
     $adminsGroup = [ADSI]"WinNT://./Administrators,group"
-    # .Split, not -replace/-split: those treat their argument as a regex,
-    # and a bare "\" is an invalid/trailing-escape pattern.
+    # .Split, ne -replace/-split: ty berou argument jako regex a samotné "\"
+    # je neplatný vzor.
     $admins = @($adminsGroup.Invoke("Members") | ForEach-Object {
         $name = $_.GetType().InvokeMember("Name", "GetProperty", $null, $_, $null)
         $name.Split('\')[-1]
@@ -212,10 +201,9 @@ try {
 }
 
 try {
-    # Match by well-known SID suffix, not by account name - the built-in
-    # Administrator/Guest account names are localized (e.g. "Administrator"
-    # -> "Administrátor" on Czech Windows), so name matching would
-    # silently fail on non-English installs.
+    # Hledá se podle známého konce SID, ne podle jména - jména vestavěných
+    # účtů Administrator/Guest jsou lokalizovaná (na české verzi
+    # "Administrátor"), podle jména by se na neanglických Windows nenašly.
     $adminAccount = Get-LocalUser | Where-Object { $_.SID.Value -like '*-500' } | Select-Object -First 1
     if ($null -eq $adminAccount) { throw "builtin Administrator account (SID -500) not found" }
     $result.builtin_administrator_enabled = [bool]$adminAccount.Enabled
@@ -233,8 +221,8 @@ try {
 
 try {
     $rdpValue = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -ErrorAction Stop).fDenyTSConnections
-    # fDenyTSConnections is inverted from what the name suggests:
-    # 0 = RDP enabled, 1 = RDP disabled.
+    # fDenyTSConnections je obráceně, než říká název:
+    # 0 = RDP zapnuté, 1 = RDP vypnuté.
     $result.rdp_enabled = ($rdpValue -eq 0)
 } catch {
     $errors += "exposure_rdp"
@@ -243,12 +231,11 @@ try {
 try {
     $autorunValue = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' -Name NoDriveTypeAutoRun -ErrorAction SilentlyContinue).NoDriveTypeAutoRun
     if ($null -eq $autorunValue) {
-        # No explicit policy set - autorun for removable media isn't
-        # restricted by this key, i.e. enabled.
+        # Policy není nastavená - tento klíč autorun pro výměnná média
+        # neomezuje, takže je zapnutý.
         $result.autorun_removable_media_enabled = $true
     } else {
-        # Bit 0x4 in the NoDriveTypeAutoRun bitmask corresponds to
-        # DRIVE_REMOVABLE.
+        # Bit 0x4 v masce NoDriveTypeAutoRun odpovídá DRIVE_REMOVABLE.
         $result.autorun_removable_media_enabled = (([int]$autorunValue -band 0x4) -eq 0)
     }
 } catch {
@@ -256,10 +243,9 @@ try {
 }
 
 try {
-    # Not available at all on Windows Home editions (no BitLocker module -
-    # this throws a command-not-found error there, caught same as any
-    # other failure), and can legitimately fail even when present (no
-    # TPM, unmanaged volume, etc).
+    # Na Windows Home vůbec není (chybí modul BitLocker, příkaz neexistuje
+    # a chytí se jako každá jiná chyba) a může selhat i tam, kde je (bez TPM,
+    # nespravovaný svazek apod.).
     $bitlockerStatus = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
     $result.bitlocker_protection_status = [string]$bitlockerStatus.ProtectionStatus
 } catch {
@@ -297,7 +283,7 @@ _HYGIENE_GROUPS = {
     "exposure_smbv1": ("smbv1_enabled",),
 }
 
-# Which output section each hygiene field belongs to.
+# Do které sekce výstupu patří každé pole hygiene.
 _HYGIENE_FIELD_SECTIONS = {
     "days_since_last_update": "patch_hygiene",
     "windows_update_reboot_pending": "patch_hygiene",
@@ -312,10 +298,10 @@ _HYGIENE_FIELD_SECTIONS = {
     "smbv1_enabled": "exposure_hardening",
 }
 
-# General health (Section 3) - explicitly not a risk signal, doesn't feed
-# state/points scoring. `uptime_seconds` isn't queried here at all: it's
-# computed in Python from `os_last_boot_time`, already fetched by
-# _CIM_SCRIPT for identity, instead of a second Win32_OperatingSystem call.
+# General health - jen informace navíc, ne riziko, do state/points se
+# nezapočítává. uptime_seconds se tady nezjišťuje: počítá se v Pythonu
+# z os_last_boot_time, který už načetl _CIM_SCRIPT pro identitu, ať není
+# druhý dotaz na Win32_OperatingSystem.
 _GENERAL_HEALTH_SCRIPT = r"""
 $result = @{}
 $errors = @()
@@ -324,10 +310,9 @@ try {
     $metric = Get-CimInstance -ClassName Win32_ReliabilityStabilityMetrics -ErrorAction Stop |
         Sort-Object TimeGenerated -Descending | Select-Object -First 1
     if ($null -eq $metric) {
-        # Legitimately no data on some machines (freshly imaged, feature
-        # not populated yet) - not a failure, just nothing to report. Don't
-        # fabricate a 0 here, that would misleadingly look like a real bad
-        # score.
+        # Na některých strojích data prostě nejsou (čerstvá instalace, funkce
+        # ještě nic nenasbírala) - nic k hlášení. Žádná vymyšlená 0, vypadala
+        # by jako skutečné špatné skóre.
         throw "no reliability stability metrics available"
     }
     $result.stability_index = $metric.SystemStabilityIndex
@@ -360,9 +345,9 @@ _DOTNET_JSON_DATE_RE = re.compile(r"/Date\((-?\d+)\)/")
 
 
 def _parse_dotnet_json_date_ms(value):
-    """Parses ConvertTo-Json's `/Date(<ms-since-epoch>)/` wire format for
-    DateTime values (always UTC-epoch milliseconds, regardless of the
-    machine's locale/timezone)."""
+    """Returns the milliseconds from a `/Date(<ms>)/` value, or None."""
+    # ConvertTo-Json posílá DateTime jako /Date(ms)/, vždy UTC milisekundy od
+    # epochy bez ohledu na jazyk a časové pásmo stroje.
     if not isinstance(value, str):
         return None
     match = _DOTNET_JSON_DATE_RE.fullmatch(value)
@@ -372,6 +357,7 @@ def _parse_dotnet_json_date_ms(value):
 
 
 def _run_powershell(script):
+    """Runs a PowerShell script and returns its JSON output."""
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -388,16 +374,16 @@ def _run_powershell(script):
 
 
 def _get_ip_addresses():
+    """Returns the sorted IP addresses of this machine."""
     hostname = socket.gethostname()
     addr_infos = socket.getaddrinfo(hostname, None)
     return sorted({addr[4][0] for addr in addr_infos})
 
 
 def _device_type(product_type, pc_system_type):
-    """Turns Win32_OperatingSystem.ProductType and
-    Win32_ComputerSystem.PCSystemType into one word. ProductType goes first,
-    servers often report PCSystemType 1 (Desktop). Virtual machines aren't
-    detected, they report Desktop."""
+    """Turns ProductType and PCSystemType into one device type word, or None."""
+    # ProductType má přednost, servery často hlásí PCSystemType 1 (Desktop).
+    # Virtuální stroje se nepoznají, hlásí Desktop.
     if product_type in (2, 3):
         return "Server"
     if pc_system_type == 2:
@@ -412,29 +398,29 @@ def _device_type(product_type, pc_system_type):
 
 
 def _collect_identity(collection_errors):
-    """Returns (identity, os_last_boot_time_raw). The second value isn't an
-    identity field itself - it's handed to _collect_general_health so
-    uptime_seconds can be computed without a second Win32_OperatingSystem
-    query."""
+    """Collects the identity fields, returns (identity, os_last_boot_time_raw)."""
+    # os_last_boot_time_raw není pole identity, dostane ho
+    # _collect_general_health, aby uptime_seconds nepotřeboval druhý dotaz na
+    # Win32_OperatingSystem.
     identity = {}
     os_last_boot_time_raw = None
 
     try:
         identity["hostname"] = socket.gethostname()
     except Exception:
-        logger.exception("Nepodařilo se zjistit hostname")
+        logger.exception("Couldn't read hostname")
         collection_errors.append("hostname")
 
     try:
         identity["os"] = platform.system()
     except Exception:
-        logger.exception("Nepodařilo se zjistit os")
+        logger.exception("Couldn't read os")
         collection_errors.append("os")
 
     try:
         identity["architecture"] = platform.machine()
     except Exception:
-        logger.exception("Nepodařilo se zjistit architecture")
+        logger.exception("Couldn't read architecture")
         collection_errors.append("architecture")
 
     identity["agent_version"] = AGENT_VERSION
@@ -442,7 +428,7 @@ def _collect_identity(collection_errors):
     try:
         identity["ip_addresses"] = _get_ip_addresses()
     except Exception:
-        logger.exception("Nepodařilo se zjistit ip_addresses")
+        logger.exception("Couldn't read ip_addresses")
         collection_errors.append("ip_addresses")
 
     try:
@@ -462,7 +448,7 @@ def _collect_identity(collection_errors):
         else:
             identity["device_type"] = device_type
     except Exception:
-        logger.exception("Nepodařilo se zjistit informace přes CIM/WMI")
+        logger.exception("Couldn't read the CIM/WMI info")
         collection_errors.extend(_CIM_FIELDS)
         collection_errors.append("device_type")
 
@@ -470,12 +456,13 @@ def _collect_identity(collection_errors):
 
 
 def _collect_protection_status(collection_errors):
+    """Collects the Defender, firewall and antivirus product status."""
     protection_status = {}
 
     try:
         raw = _run_powershell(_PROTECTION_STATUS_SCRIPT)
     except Exception:
-        logger.exception("Nepodařilo se zjistit protection status")
+        logger.exception("Couldn't read protection status")
         for fields in _PROTECTION_STATUS_GROUPS.values():
             collection_errors.extend(fields)
         return protection_status
@@ -494,16 +481,11 @@ def _collect_protection_status(collection_errors):
     return protection_status
 
 
-def _collect_hygiene(identity, collection_errors):
-    """Collects patch/account/exposure hygiene (Sections 2b-2d).
-
-    `outdated_apps` (winget-based) is deliberately not collected in this
-    pass: unlike everything else here, it needs live network access at
-    collection time and winget behaves inconsistently under the SYSTEM
-    account this agent runs as. Left as separate future work rather than
-    risking the rest of this batch - omitted entirely (not reported via
-    collection_errors, since it's a deliberate deferral, not a failure).
-    """
+def _collect_hygiene(collection_errors):
+    """Collects the patch, account and exposure hygiene."""
+    # outdated_apps (winget) se záměrně nesbírá: jako jediné potřebuje při
+    # sběru síť a winget se pod účtem SYSTEM chová nespolehlivě. Chybí úplně,
+    # ani v collection_errors není, protože to není chyba, ale rozhodnutí.
     sections = {
         "patch_hygiene": {},
         "account_hygiene": {},
@@ -513,7 +495,7 @@ def _collect_hygiene(identity, collection_errors):
     try:
         raw = _run_powershell(_HYGIENE_SCRIPT)
     except Exception:
-        logger.exception("Nepodařilo se zjistit patch/account/exposure hygiene")
+        logger.exception("Couldn't read patch/account/exposure hygiene")
         for fields in _HYGIENE_GROUPS.values():
             collection_errors.extend(fields)
         return sections
@@ -533,8 +515,8 @@ def _collect_hygiene(identity, collection_errors):
 
 
 def _collect_general_health(os_last_boot_time_raw, collection_errors):
-    """Collects Section 3 (General health) - explicitly not a risk signal,
-    background info only, never feeds state/points scoring."""
+    """Collects the general health info (uptime, stability, disk)."""
+    # Jen informace navíc, ne riziko - do state/points se nikdy nezapočítává.
     general_health = {}
 
     boot_time_ms = _parse_dotnet_json_date_ms(os_last_boot_time_raw)
@@ -548,7 +530,7 @@ def _collect_general_health(os_last_boot_time_raw, collection_errors):
     try:
         raw = _run_powershell(_GENERAL_HEALTH_SCRIPT)
     except Exception:
-        logger.exception("Nepodařilo se zjistit general health")
+        logger.exception("Couldn't read general health")
         for fields in _GENERAL_HEALTH_GROUPS.values():
             collection_errors.extend(fields)
         return general_health
@@ -568,18 +550,14 @@ def _collect_general_health(os_last_boot_time_raw, collection_errors):
 
 
 def get_system_info():
-    """Collects machine identity, protection-status, patch/account/exposure
-    hygiene, and general-health data for the monitoring backend.
-
-    Best-effort: a field that fails to collect is omitted from its section
-    and its name is recorded under the shared `collection_errors` list
-    instead of failing the whole check-in.
-    """
+    """Collects all system info sections for the backend."""
+    # Best-effort: pole, které se nepodaří zjistit, ve své sekci chybí a jeho
+    # název je v collection_errors, místo aby selhal celý check-in.
     collection_errors = []
 
     identity, os_last_boot_time_raw = _collect_identity(collection_errors)
     protection_status = _collect_protection_status(collection_errors)
-    hygiene_sections = _collect_hygiene(identity, collection_errors)
+    hygiene_sections = _collect_hygiene(collection_errors)
     general_health = _collect_general_health(os_last_boot_time_raw, collection_errors)
 
     result = {

@@ -8,11 +8,11 @@ import requests
 from lib.message_encryptor import MessageEncryptor
 from lib.message_sender import MessageSender
 from lib.public_key_fetcher import PublicKeyFetcher
-from lib.system_info_reporter import SystemInfoReporter  # Import SystemInfoReporter
+from lib.system_info_reporter import SystemInfoReporter
 
 from src import config, updater
 
-# Nastavení základního logování do C:\ProgramData\Mastiff\agent.log
+# Nastavení základního logování do C:\ProgramData\Mastiff\agent_info.log
 log_dir = Path(os.getenv("PROGRAMDATA", "C:\\ProgramData")) / "Mastiff"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_file = log_dir / "agent_info.log"
@@ -26,7 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# PROMĚNNÁ PRO BEZPEČNOST
 class Agent:
     def __init__(self):
         cfg = config.load()
@@ -35,22 +34,21 @@ class Agent:
         self.auth_token = cfg.get("auth_token", "")
         if not self.auth_token or self.auth_token == "NOT_CONFIGURED":
             logger.error(
-                "Chyba: 'auth_token' není nastaven. Spusť 'agent-cli set auth_token <token>'"
+                "auth_token is not set. Run 'agent-cli set auth_token <token>'"
             )
             sys.exit(1)
         self._public_key_fetcher = PublicKeyFetcher(self.server_url)
         self._message_encryptor = MessageEncryptor()
         self._message_sender = MessageSender(self.server_url, self.agent_id)
-        self._system_info_reporter = (
-            SystemInfoReporter()
-        )  # Instantiate SystemInfoReporter
-        self.message_count = 0  # Initialize message_count as an instance variable
+        self._system_info_reporter = SystemInfoReporter()
+        self.message_count = 0
 
     def _fetch_public_key(self):
+        """Returns the server's public key."""
         return self._public_key_fetcher.fetch_public_key()
 
     def send_message(self, content):
-        """Pošle šifrovanou zprávu na server (AES-GCM + RSA-OAEP)."""
+        """Encrypts the content and sends it to the server (AES-GCM + RSA-OAEP)."""
         try:
             public_key = self._fetch_public_key()
 
@@ -60,7 +58,6 @@ class Agent:
                 )
             )
 
-            # Use the MessageSender to send the message
             return self._message_sender.send_message(
                 encrypted_key_b64,
                 nonce_b64,
@@ -70,16 +67,16 @@ class Agent:
 
         except requests.exceptions.RequestException as e:
             logger.error(
-                "%s: Chyba při odesílání nebo získávání klíče - %s", self.agent_id, e
+                "%s: Sending the check-in or fetching the key failed - %s", self.agent_id, e
             )
             return False
 
     def start_agent(self):
-        """Spustí agenta - periodicky posílá zprávy"""
-        logger.info("Agent %s startuje...", self.agent_id)
-        logger.info("Cílová URL: %s", self.server_url)
+        """Collects the system info and sends one check-in."""
+        logger.info("Agent %s starting...", self.agent_id)
+        logger.info("Server URL: %s", self.server_url)
 
-        self.message_count += 1  # Increment instance message_count
+        self.message_count += 1
         system_info = self._system_info_reporter.report_system_info()
 
         content = json.dumps(system_info, ensure_ascii=False)

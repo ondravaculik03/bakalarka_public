@@ -1,6 +1,4 @@
-"""
-Build script pro vytvoření .exe souborů pomocí PyInstaller
-"""
+"""Builds the agent's .exe files with PyInstaller."""
 
 import platform
 import shutil
@@ -70,5 +68,5 @@ for name in ("agent-service", "agent-cli", "agent-updater"):
     src_exe.rename(versioned_exe)
     print(f"  {src_exe.name} -> {versioned_exe.name}")
 
-print("\nBuild dokončen!")
-print(f"Soubory jsou v: {dist_dir}")
+print("\nBuild done!")
+print(f"Files are in: {dist_dir}")

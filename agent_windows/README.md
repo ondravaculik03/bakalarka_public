@@ -10,7 +10,7 @@ Build & release
 CLI usage
 
 agent-cli status - show current config
-agent-cli set <key> <value> - key is server_url, interval_seconds, log_level or auth_token (restart service after)
+agent-cli set <key> <value> - key is server_url or auth_token (applies at the agent's next run)
 agent-cli check-update [--auto] - check for new version
 agent-cli update - update to latest version
 agent-cli --version - show version

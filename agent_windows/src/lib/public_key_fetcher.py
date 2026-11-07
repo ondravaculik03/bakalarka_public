@@ -13,6 +13,7 @@ class PublicKeyFetcher:
         self._public_key: RSAPublicKey | None = None
 
     def fetch_public_key(self) -> RSAPublicKey:
+        """Returns the server's public key, fetched once and then cached."""
         if self._public_key is not None:
             return self._public_key
         try:
@@ -23,5 +24,5 @@ class PublicKeyFetcher:
             self._public_key = public_key
             return public_key
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching public key from {self.server_url}: {e}")
+            logger.error("Error fetching public key from %s: %s", self.server_url, e)
             raise

@@ -15,20 +15,20 @@ GITHUB_REPO = "ondravaculik03/bakalarka_public"
 
 
 def get_latest_release_data():
-    """Načte metadata posledního releasu z GitHub API."""
+    """Returns the latest release's metadata from the GitHub API, or None."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
     try:
         resp = requests.get(url, timeout=5)
         if resp.status_code == 200:
             return resp.json()
-        logger.warning(f"GitHub API returned {resp.status_code}")
+        logger.warning("GitHub API returned %s", resp.status_code)
     except Exception as e:
-        logger.warning(f"Failed to check GitHub release: {e}")
+        logger.warning("Failed to check GitHub release: %s", e)
     return None
 
 
 def _find_versioned_exe_asset(release_data, exe_prefix):
-    """Najde asset, který začíná na exe_prefix a končí na .exe (ignoruje verzi v názvu)."""
+    """Returns the asset that starts with exe_prefix and ends with .exe, any version in the name."""
     for asset in release_data.get("assets", []):
         name = asset.get("name", "").lower()
         if name.startswith(exe_prefix.lower()) and name.endswith(".exe"):
@@ -37,7 +37,7 @@ def _find_versioned_exe_asset(release_data, exe_prefix):
 
 
 def _download_asset(url, output_path):
-    """Stáhne soubor po částech do cílové cesty."""
+    """Downloads a file in chunks to output_path."""
     resp = requests.get(url, timeout=60, stream=True)
     resp.raise_for_status()
     with open(output_path, "wb") as f:
@@ -47,7 +47,7 @@ def _download_asset(url, output_path):
 
 
 def _launch_updater(updater_path, unpack_dir):
-    """Spustí updater jako samostatný proces."""
+    """Starts the updater as a separate process."""
     install_dir = (
         Path(sys.executable).resolve().parent
         if getattr(sys, "frozen", False)
@@ -68,12 +68,12 @@ def _launch_updater(updater_path, unpack_dir):
 
 
 def _terminate_current_process():
-    """Ukončí aktuální proces po předání řízení updateru."""
+    """Ends the current process after handing over to the updater."""
     os._exit(0)
 
 
 def get_latest_github_version():
-    """Vrati tag posledni verze z GitHub releasu nebo None."""
+    """Returns the tag of the latest GitHub release, or None."""
     data = get_latest_release_data()
     if data:
         return data.get("tag_name", None)
@@ -81,9 +81,10 @@ def get_latest_github_version():
 
 
 def is_newer_version(latest):
-    """Vrati True, pokud je latest novejsi nez current."""
+    """Returns True if latest is newer than the current version."""
 
     def parse(v):
+        """Turns a version string into a list of numbers."""
         return [int(x) for x in v.strip("v").split(".") if x.isdigit()]
 
     if AGENT_VERSION and latest:
@@ -92,7 +93,7 @@ def is_newer_version(latest):
 
 
 def update_agent(args=None):
-    """Provede kontrolu releasu a stazeni všech .exe souborů do docasne slozky (podporuje verzované názvy)."""
+    """Downloads the latest release's .exe files to a temp folder and starts the updater."""
     try:
         # 1) Načti data o posledním releasu.
         release_data = get_latest_release_data()
@@ -102,7 +103,7 @@ def update_agent(args=None):
         # 2) Ověř, že release obsahuje novější verzi.
         latest = release_data.get("tag_name")
         if not latest or not is_newer_version(latest):
-            logger.info("Aplikace je aktuální.")
+            logger.info("The agent is up to date.")
             return False
 
         # 3) Najdi všechny potřebné exe assety v releasu podle prefixu.
@@ -115,7 +116,7 @@ def update_agent(args=None):
         for prefix, target_name in exe_map.items():
             asset = _find_versioned_exe_asset(release_data, prefix)
             if not asset:
-                logger.warning(f"Release neobsahuje asset pro {prefix}.")
+                logger.warning("The release has no asset for %s.", prefix)
                 return False
             assets[target_name] = asset
 
@@ -128,7 +129,7 @@ def update_agent(args=None):
         # 5) Najdi agent-updater.exe v dočasné složce
         updater_path = tmp_dir / "agent-updater.exe"
         if not updater_path.exists():
-            logger.warning("Nebyl stažen agent-updater.exe")
+            logger.warning("agent-updater.exe wasn't downloaded")
             return False
 
         # 6) Spusť updater jako samostatný proces, který se postará o aktualizaci
@@ -138,35 +139,33 @@ def update_agent(args=None):
         if getattr(sys, "frozen", False):
             _terminate_current_process()
 
-        logger.info(f"Staženy nové exe soubory do: {tmp_dir}")
+        logger.info("New exe files downloaded to: %s", tmp_dir)
         return True
     except Exception as e:
-        logger.warning(f"Aktualizace selhala: {e}")
+        logger.warning("Update failed: %s", e)
         return False
 
 
-def check_for_update(
-    args=None, auto_update=False
-):  # autoupdate není takový jaký si myslíte - používá se aby se ušetřilo pár interakcí s uživatelem
-    """Zkontroluje dostupnost nove verze a volitelne spusti update."""
+def check_for_update(args=None, auto_update=False):
+    """Checks for a new version and optionally starts the update."""
     if args is not None and hasattr(args, "auto"):
         auto_update = bool(args.auto)
 
     latest = get_latest_github_version()
 
     if latest and is_newer_version(latest):
-        logger.info(f"Nová verze dostupná: {latest}. Aktuální: {AGENT_VERSION}")
+        logger.info("New version available: %s. Current: %s", latest, AGENT_VERSION)
         if auto_update:
             update_agent()
         else:
             response = (
-                input("Chcete aktualizovat agenta na novou verzi? [y/N]: ")
+                input("Update the agent to the new version? [y/N]: ")
                 .strip()
                 .lower()
             )
             if response == "y":
                 update_agent()
             else:
-                logger.info("Aktualizace byla zrušena uživatelem.")
+                logger.info("Update cancelled.")
     else:
-        logger.info("Aplikace je aktuální.")
+        logger.info("The agent is up to date.")

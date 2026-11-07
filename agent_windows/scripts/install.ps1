@@ -15,7 +15,7 @@ $headers = @{
 try {
     $release = Invoke-RestMethod "https://api.github.com/repos/$GITHUB_REPO/releases/latest" -Headers $headers
 } catch {
-    Write-Error "Nepodařilo se získat latest release z GitHubu. Zkontroluj, zda existuje published release."
+    Write-Error "Couldn't get the latest release from GitHub. Check that a published release exists."
     exit 1
 }
 
@@ -25,7 +25,7 @@ $agentAsset = $release.assets | Where-Object { $_.name -like "agent-service*.exe
 $cliAsset   = $release.assets | Where-Object { $_.name -like "agent-cli*.exe" }
 
 if (-not $agentAsset -or -not $cliAsset) {
-    Write-Error "Nepodařilo se najít potřebné binárky (agent-service*.exe nebo agent-cli*.exe) v release."
+    Write-Error "Couldn't find agent-service*.exe or agent-cli*.exe in the release."
     exit 1
 }
 
@@ -47,7 +47,7 @@ Copy-Item "$temp\agent-cli.exe" "$INSTALL_DIR\" -Force
 
 # Config
 if (-not (Test-Path "$CONFIG_DIR\config.json")) {
-    '{"server_url":"NOT_CONFIGURED","auth_token":"NOT_CONFIGURED","interval_seconds":60,"log_level":"INFO"}' | Set-Content "$CONFIG_DIR\config.json"
+    '{"server_url":"NOT_CONFIGURED","auth_token":"NOT_CONFIGURED"}' | Set-Content "$CONFIG_DIR\config.json"
 }
 
 # PATH
@@ -63,4 +63,4 @@ schtasks /create /tn "MonitoringAgentHourly" /tr "`"$INSTALL_DIR\agent-service.e
 # Cleanup
 Remove-Item -Path $temp -Recurse -Force
 
-Write-Host "Hotovo. Nastav: agent-cli set server_url <url>"
+Write-Host "Done. Next: agent-cli set server_url <url>"

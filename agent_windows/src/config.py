@@ -8,7 +8,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
 def load():
-    """Načte config, pokud neexistuje vytvoř prázdný"""
+    """Loads the config, creates a default one if it doesn't exist."""
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE, "r") as f:
             cfg = json.load(f)
@@ -20,8 +20,6 @@ def load():
     # Vytvoř default
     default = {
         "server_url": "NOT_CONFIGURED",
-        "interval_seconds": 60,
-        "log_level": "INFO",
         "auth_token": "NOT_CONFIGURED",
         "agent_id": str(uuid.uuid4()),
     }
@@ -30,7 +28,7 @@ def load():
 
 
 def save(config):
-    """Uloží config"""
+    """Saves the config."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
