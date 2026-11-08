@@ -341,6 +341,35 @@ _GENERAL_HEALTH_GROUPS = {
     "general_health_disk": ("disk_free_bytes", "disk_total_bytes"),
 }
 
+# Seznam nainstalovaných aplikací z registru. Jen HKLM: agent běží jako SYSTEM
+# a aplikace v HKCU by viděl jen u přihlášených uživatelů, takže by se
+# objevovaly a mizely podle přihlášení. Nikdy Win32_Product - dotaz na něj
+# může spustit opravy MSI balíčků. Obal @{apps = ...}, aby 0 nebo 1 aplikace
+# byla v JSON pořád seznam.
+_INSTALLED_SOFTWARE_SCRIPT = r"""
+$keys = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+$apps = @()
+foreach ($key in $keys) {
+    # SilentlyContinue: klíč WOW6432Node na 32bit Windows neexistuje.
+    foreach ($entry in @(Get-ItemProperty -Path $key -ErrorAction SilentlyContinue)) {
+        $name = ([string]$entry.DisplayName).Trim()
+        if ($name -eq "") { continue }
+        if ($entry.SystemComponent -eq 1) { continue }
+        if ($entry.ParentKeyName) { continue }
+        if (@("Update", "Hotfix", "Security Update") -contains $entry.ReleaseType) { continue }
+        $version = ([string]$entry.DisplayVersion).Trim()
+        $publisher = ([string]$entry.Publisher).Trim()
+        if ($version -eq "") { $version = $null }
+        if ($publisher -eq "") { $publisher = $null }
+        $apps += [PSCustomObject]@{ name = $name; version = $version; publisher = $publisher }
+    }
+}
+[PSCustomObject]@{ apps = $apps } | ConvertTo-Json -Compress -Depth 5
+"""
+
 _DOTNET_JSON_DATE_RE = re.compile(r"/Date\((-?\d+)\)/")
 
 
@@ -359,10 +388,14 @@ def _parse_dotnet_json_date_ms(value):
 def _run_powershell(script):
     """Runs a PowerShell script and returns its JSON output."""
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Bez UTF8 píše PowerShell výstup v kódové stránce konzole a znaky
+    # s diakritikou (třeba "Správce") by se rozbily.
+    script = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
         creationflags=creationflags,
     )
@@ -549,6 +582,34 @@ def _collect_general_health(os_last_boot_time_raw, collection_errors):
     return general_health
 
 
+def _collect_installed_software(collection_errors):
+    """Returns the installed apps without duplicates, or None if the read failed."""
+    try:
+        raw = _run_powershell(_INSTALLED_SOFTWARE_SCRIPT)
+    except Exception:
+        logger.exception("Couldn't read installed software")
+        collection_errors.append("installed_software")
+        return None
+
+    # Stejná aplikace může být v obou klíčích, nechá se první výskyt.
+    apps = []
+    seen = set()
+    for app in raw.get("apps") or []:
+        key = (app.get("name"), app.get("version"))
+        if key in seen:
+            continue
+        seen.add(key)
+        apps.append(
+            {
+                "name": app.get("name"),
+                "version": app.get("version"),
+                "publisher": app.get("publisher"),
+            }
+        )
+
+    return apps
+
+
 def get_system_info():
     """Collects all system info sections for the backend."""
     # Best-effort: pole, které se nepodaří zjistit, ve své sekci chybí a jeho
@@ -559,6 +620,7 @@ def get_system_info():
     protection_status = _collect_protection_status(collection_errors)
     hygiene_sections = _collect_hygiene(collection_errors)
     general_health = _collect_general_health(os_last_boot_time_raw, collection_errors)
+    installed_software = _collect_installed_software(collection_errors)
 
     result = {
         "identity": identity,
@@ -566,6 +628,8 @@ def get_system_info():
         **hygiene_sections,
         "general_health": general_health,
     }
+    if installed_software is not None:
+        result["installed_software"] = installed_software
     if collection_errors:
         result["collection_errors"] = collection_errors
     return result
