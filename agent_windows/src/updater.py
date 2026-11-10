@@ -1,17 +1,27 @@
+import base64
+import hashlib
+import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import requests
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from src import __version__ as AGENT_VERSION
 
 logger = logging.getLogger(__name__)
 
 GITHUB_REPO = "ondravaculik03/bakalarka_public"
+
+# Veřejný klíč releasů (Ed25519, base64), vypíše ho scripts/create_release_signing_key.py.
+# HTTPS jen dokazuje že soubor je z GitHubu, podpis že ho vydal majitel soukromého klíče.
+# Dokud je tu placeholder, podpis nikdy neprojde = žádná aktualizace (bezpečná výchozí hodnota).
+RELEASE_PUBLIC_KEY = "lqPM4SwNSrTj+V6Z1QHFebytSyIvZFli8mnU73eB4x0="
 
 
 def get_latest_release_data():
@@ -36,6 +46,14 @@ def _find_versioned_exe_asset(release_data, exe_prefix):
     return None
 
 
+def _find_asset_by_name(release_data, name):
+    """Returns the asset with exactly this name, or None."""
+    for asset in release_data.get("assets", []):
+        if asset.get("name") == name:
+            return asset
+    return None
+
+
 def _download_asset(url, output_path):
     """Downloads a file in chunks to output_path."""
     resp = requests.get(url, timeout=60, stream=True)
@@ -46,13 +64,74 @@ def _download_asset(url, output_path):
                 f.write(chunk)
 
 
-def _launch_updater(updater_path, unpack_dir):
-    """Starts the updater as a separate process."""
-    install_dir = (
+def _get_install_dir():
+    """Returns the folder the agent runs from (the exe's folder, or the current folder when not built)."""
+    return (
         Path(sys.executable).resolve().parent
         if getattr(sys, "frozen", False)
         else Path.cwd()
     )
+
+
+def _signature_is_valid(manifest_bytes, signature):
+    """Returns True if the manifest was signed with the release key."""
+    try:
+        public_key = Ed25519PublicKey.from_public_bytes(
+            base64.b64decode(RELEASE_PUBLIC_KEY)
+        )
+        public_key.verify(signature, manifest_bytes)
+        return True
+    except (InvalidSignature, ValueError):
+        # ValueError = klíč není platný (třeba ještě placeholder)
+        return False
+
+
+def _download_and_check_release(latest, assets, update_dir):
+    """Downloads the manifest, signature and exes to update_dir; returns True only if all of them check out."""
+    manifest_path = update_dir / "release-manifest.json"
+    signature_path = update_dir / "release-manifest.json.sig"
+    _download_asset(
+        assets["release-manifest.json"]["browser_download_url"], manifest_path
+    )
+    _download_asset(
+        assets["release-manifest.json.sig"]["browser_download_url"], signature_path
+    )
+
+    # nejdřív podpis, až pak se manifestu dá věřit
+    manifest_bytes = manifest_path.read_bytes()
+    if not _signature_is_valid(manifest_bytes, signature_path.read_bytes()):
+        logger.warning("Update refused: the release signature is not valid.")
+        return False
+
+    # verze je v podepsaném manifestu, takže starý podepsaný build pod vyšším tagem neprojde
+    manifest = json.loads(manifest_bytes)
+    version = manifest.get("version")
+    if version != latest.lstrip("v") or not is_newer_version(version):
+        logger.warning(
+            "Update refused: the signed version %s doesn't match the release %s or isn't newer than %s.",
+            version,
+            latest,
+            AGENT_VERSION,
+        )
+        return False
+
+    for target_name in ("agent-service.exe", "agent-cli.exe", "agent-updater.exe"):
+        exe_path = update_dir / target_name
+        _download_asset(assets[target_name]["browser_download_url"], exe_path)
+        if hashlib.sha256(exe_path.read_bytes()).hexdigest() != manifest["files"].get(
+            target_name
+        ):
+            logger.warning(
+                "Update refused: %s doesn't match the signed manifest.", target_name
+            )
+            return False
+
+    return True
+
+
+def _launch_updater(updater_path, unpack_dir):
+    """Starts the updater as a separate process."""
+    install_dir = _get_install_dir()
     subprocess.Popen(
         [
             str(updater_path),
@@ -93,7 +172,8 @@ def is_newer_version(latest):
 
 
 def update_agent(args=None):
-    """Downloads the latest release's .exe files to a temp folder and starts the updater."""
+    """Downloads the latest release to <install dir>\\update, checks its signature and hashes and starts the updater."""
+    update_dir = None
     try:
         # 1) Načti data o posledním releasu.
         release_data = get_latest_release_data()
@@ -120,29 +200,36 @@ def update_agent(args=None):
                 return False
             assets[target_name] = asset
 
-        # 4) Stáhni všechny exe soubory do dočasné složky pod pevnými názvy.
-        tmp_dir = Path(tempfile.mkdtemp(prefix="agent-update-"))
-        for target_name, asset in assets.items():
-            exe_path = tmp_dir / target_name
-            _download_asset(asset["browser_download_url"], exe_path)
+        # 4) Podepsaný manifest a jeho podpis, jména přesně.
+        for name in ("release-manifest.json", "release-manifest.json.sig"):
+            asset = _find_asset_by_name(release_data, name)
+            if not asset:
+                logger.warning("The release has no %s.", name)
+                return False
+            assets[name] = asset
 
-        # 5) Najdi agent-updater.exe v dočasné složce
-        updater_path = tmp_dir / "agent-updater.exe"
-        if not updater_path.exists():
-            logger.warning("agent-updater.exe wasn't downloaded")
+        # 5) Stáhni a zkontroluj všechno do <install dir>\update. Do Program Files\Mastiff smí
+        # zapisovat jen admin a SYSTEM, takže nikdo nevymění zkontrolovaný soubor před spuštěním
+        update_dir = _get_install_dir() / "update"
+        shutil.rmtree(update_dir, ignore_errors=True)
+        update_dir.mkdir()
+        if not _download_and_check_release(latest, assets, update_dir):
+            shutil.rmtree(update_dir, ignore_errors=True)
             return False
 
         # 6) Spusť updater jako samostatný proces, který se postará o aktualizaci
-        _launch_updater(updater_path, tmp_dir)
+        _launch_updater(update_dir / "agent-updater.exe", update_dir)
 
         # u zabalené verze ukončíme proces, aby updater mohl přepsat exe
         if getattr(sys, "frozen", False):
             _terminate_current_process()
 
-        logger.info("New exe files downloaded to: %s", tmp_dir)
+        logger.info("New exe files downloaded to: %s", update_dir)
         return True
     except Exception as e:
         logger.warning("Update failed: %s", e)
+        if update_dir is not None:
+            shutil.rmtree(update_dir, ignore_errors=True)
         return False
 
 
@@ -159,9 +246,7 @@ def check_for_update(args=None, auto_update=False):
             update_agent()
         else:
             response = (
-                input("Update the agent to the new version? [y/N]: ")
-                .strip()
-                .lower()
+                input("Update the agent to the new version? [y/N]: ").strip().lower()
             )
             if response == "y":
                 update_agent()

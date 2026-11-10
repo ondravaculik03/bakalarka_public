@@ -58,10 +58,10 @@ def _find_file(root_dir, file_name):
 
 
 def _cleanup_temp_files(package_dir):
-    """Removes the temporary files after the update."""
-    package_dir = Path(package_dir)
-    temp_root = package_dir.parent
-    shutil.rmtree(temp_root, ignore_errors=True)
+    """Removes the downloaded package folder after the update."""
+    # jen package_dir, jeho rodič je instalační složka. Vlastní exe updateru může být zamčené,
+    # proto ignore_errors - další aktualizace složku stejně nejdřív vyprázdní
+    shutil.rmtree(Path(package_dir), ignore_errors=True)
 
 
 def run_update(install_dir, package_dir, process_id):
