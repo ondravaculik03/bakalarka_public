@@ -15,8 +15,7 @@ $headers = @{
 try {
     $release = Invoke-RestMethod "https://api.github.com/repos/$GITHUB_REPO/releases/latest" -Headers $headers
 } catch {
-    Write-Error "Couldn't get the latest release from GitHub. Check that a published release exists."
-    exit 1
+    throw "Couldn't get the latest release from GitHub. Check that a published release exists."
 }
 
 
@@ -25,8 +24,7 @@ $agentAsset = $release.assets | Where-Object { $_.name -like "agent-service*.exe
 $cliAsset   = $release.assets | Where-Object { $_.name -like "agent-cli*.exe" }
 
 if (-not $agentAsset -or -not $cliAsset) {
-    Write-Error "Couldn't find agent-service*.exe or agent-cli*.exe in the release."
-    exit 1
+    throw "Couldn't find agent-service*.exe or agent-cli*.exe in the release."
 }
 
 $agentUrl = $agentAsset[0].browser_download_url
@@ -47,21 +45,19 @@ New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
 icacls $CONFIG_DIR /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 # Stop nezachytí chybový kód nativního programu, proto se kontroluje ručně
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Couldn't restrict access to $CONFIG_DIR to SYSTEM and Administrators."
-    exit 1
+    throw "Couldn't restrict access to $CONFIG_DIR to SYSTEM and Administrators."
 }
 Copy-Item "$temp\agent-service.exe" "$INSTALL_DIR\" -Force
 Copy-Item "$temp\agent-cli.exe" "$INSTALL_DIR\" -Force
-
-# Config
-if (-not (Test-Path "$CONFIG_DIR\config.json")) {
-    '{"server_url":"NOT_CONFIGURED","auth_token":"NOT_CONFIGURED"}' | Set-Content "$CONFIG_DIR\config.json"
-}
 
 # PATH
 $path = [Environment]::GetEnvironmentVariable("Path", "Machine")
 if ($path -notlike "*$INSTALL_DIR*") {
     [Environment]::SetEnvironmentVariable("Path", "$path;$INSTALL_DIR", "Machine")
+}
+# Skript běží přes irm | iex v otevřeném okně, takže agent-cli funguje hned bez nového okna
+if ($env:Path -notlike "*$INSTALL_DIR*") {
+    $env:Path += ";$INSTALL_DIR"
 }
 
 # Scheduled tasks
@@ -71,4 +67,4 @@ schtasks /create /tn "MonitoringAgentHourly" /tr "`"$INSTALL_DIR\agent-service.e
 # Cleanup
 Remove-Item -Path $temp -Recurse -Force
 
-Write-Host "Done. Next: agent-cli set server_url <url>"
+Write-Host "Done. Next: agent-cli enroll <server> --code <code> --cert-hash <hash> (copy it from the dashboard's Add machines)"

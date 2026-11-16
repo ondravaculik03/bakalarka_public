@@ -32,6 +32,8 @@ PyInstaller.__main__.run(
         f'--add-data={src_dir / "config.py"};.',
         f'--add-data={src_dir / "lib"};lib',
         "--hidden-import=lib.system_info",
+        # lib je jen jako data, PyInstaller nevidí jeho importy a platform jinak nikdo nepřitáhne
+        "--hidden-import=platform",
         "--clean",
     ]
 )

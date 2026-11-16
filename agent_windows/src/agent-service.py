@@ -5,9 +5,7 @@ import sys
 from pathlib import Path
 
 import requests
-from lib.message_encryptor import MessageEncryptor
 from lib.message_sender import MessageSender
-from lib.public_key_fetcher import PublicKeyFetcher
 from lib.system_info_reporter import SystemInfoReporter
 
 from src import config, updater
@@ -30,45 +28,28 @@ class Agent:
     def __init__(self):
         cfg = config.load()
         self.agent_id = cfg.get("agent_id")
-        self.server_url = cfg.get("server_url", "http://localhost:8000")
-        self.auth_token = cfg.get("auth_token", "")
-        if not self.auth_token or self.auth_token == "NOT_CONFIGURED":
-            logger.error(
-                "auth_token is not set. Run 'agent-cli set auth_token <token>'"
-            )
+        self.server_url = cfg.get("server_url")
+        # bez zápisu (ID, klíč, certifikát) nemá agent čím se serveru prokázat
+        if (
+            not self.agent_id
+            or not config.KEY_FILE.exists()
+            or not config.CERTIFICATE_FILE.exists()
+        ):
+            logger.error("Not enrolled yet, run agent-cli enroll")
             sys.exit(1)
-        self._public_key_fetcher = PublicKeyFetcher(self.server_url)
-        self._message_encryptor = MessageEncryptor()
         self._message_sender = MessageSender(self.server_url, self.agent_id)
         self._system_info_reporter = SystemInfoReporter()
         self.message_count = 0
 
-    def _fetch_public_key(self):
-        """Returns the server's public key."""
-        return self._public_key_fetcher.fetch_public_key()
-
     def send_message(self, content):
-        """Encrypts the content and sends it to the server (AES-GCM + RSA-OAEP)."""
+        """Sends the check-in to the server over mutual TLS."""
         try:
-            public_key = self._fetch_public_key()
-
-            encrypted_key_b64, nonce_b64, ciphertext_b64 = (
-                self._message_encryptor.encrypt_message(
-                    json.loads(content), self.auth_token, public_key
-                )
-            )
-
             return self._message_sender.send_message(
-                encrypted_key_b64,
-                nonce_b64,
-                ciphertext_b64,
-                self.message_count,
+                json.loads(content), self.message_count
             )
 
         except requests.exceptions.RequestException as e:
-            logger.error(
-                "%s: Sending the check-in or fetching the key failed - %s", self.agent_id, e
-            )
+            logger.error("%s: Sending the check-in failed - %s", self.agent_id, e)
             return False
 
     def start_agent(self):

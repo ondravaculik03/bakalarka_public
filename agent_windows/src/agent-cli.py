@@ -1,8 +1,9 @@
 import argparse
 import json
 import logging
+import sys
 
-from src import config, updater
+from src import config, enroll, updater
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,26 +20,15 @@ def status(args):  # args posílá argparse, i když je funkce nepoužije
     logger.info(json.dumps(cfg, indent=2))
 
 
-def set_value(args):
-    """Checks and saves one configuration value."""
-    cfg = config.load()
-
-    key = args.key
-    value = args.value
-
-    # Kontrola hodnoty
-    if key == "server_url":
-        if not value.startswith(("http://", "https://")):
-            logger.error("server_url must start with 'http://' or 'https://'")
-            return
-    elif key == "auth_token" and not value:
-        logger.error("auth_token must not be empty")
-        return
-
-    cfg[key] = value
-    config.save(cfg)
-    logger.info("Set: %s = %s", key, value)
-    logger.info("\nThe change applies at the agent's next run.")
+def enroll_machine(args):
+    """Enrolls this machine, asks for the address and code when they weren't given."""
+    server_url = args.server_url
+    if not server_url:
+        server_url = input("Server address (e.g. https://10.0.0.5:8443): ").strip()
+    code = args.code
+    if not code:
+        code = input("Enrollment code: ").strip()
+    enroll.enroll(server_url, code, args.cert_hash)
 
 
 if __name__ == "__main__":
@@ -63,18 +53,20 @@ if __name__ == "__main__":
     )
     status_parser.set_defaults(func=status)
 
-    set_parser = subparsers.add_parser(
-        "set",
-        help="Sets a value in the agent's configuration.",
-        description="Sets the value of one configuration key. Checks 'server_url' and 'auth_token'.",
+    enroll_parser = subparsers.add_parser(
+        "enroll",
+        help="Enrolls this machine on the Mastiff server.",
+        description="Enrolls this machine with a code from the dashboard's Add machines. "
+        "Asks for the address and the code when they're missing.",
     )
-    set_parser.add_argument(
-        "key",
-        choices=["server_url", "auth_token"],
-        help="Name of the configuration key (server_url, auth_token).",
+    enroll_parser.add_argument(
+        "server_url", nargs="?", help="The server's agent address, e.g. https://10.0.0.5:8443."
     )
-    set_parser.add_argument("value", help="The new value for the key.")
-    set_parser.set_defaults(func=set_value)
+    enroll_parser.add_argument("--code", help="The enrollment code from the dashboard.")
+    enroll_parser.add_argument(
+        "--cert-hash", help="The server certificate's fingerprint from the dashboard (sha256:...)."
+    )
+    enroll_parser.set_defaults(func=enroll_machine)
 
     check_update_parser = subparsers.add_parser(
         "check-update",
@@ -106,5 +98,6 @@ if __name__ == "__main__":
                 "Run agent-cli as administrator, its files in C:\\ProgramData\\Mastiff "
                 "are for administrators only."
             )
+            sys.exit(1)
     else:
         parser.print_help()

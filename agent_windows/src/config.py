@@ -1,30 +1,21 @@
 import json
 import os
-import uuid
 from pathlib import Path
 
 CONFIG_DIR = Path(os.getenv("PROGRAMDATA", ".")) / "Mastiff"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+KEY_FILE = CONFIG_DIR / "agent.key"
+CERTIFICATE_FILE = CONFIG_DIR / "agent.pem"
+CA_FILE = CONFIG_DIR / "ca.pem"
 
 
 def load():
-    """Loads the config, creates a default one if it doesn't exist."""
+    """Loads the config, an empty one if it doesn't exist yet."""
+    # agent_id tady nevzniká, dělá ho jen enroll, jinak by každý naklonovaný image měl stejné ID
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE, "r") as f:
-            cfg = json.load(f)
-        if "agent_id" not in cfg:
-            cfg["agent_id"] = str(uuid.uuid4())
-            save(cfg)
-        return cfg
-
-    # Vytvoř default
-    default = {
-        "server_url": "NOT_CONFIGURED",
-        "auth_token": "NOT_CONFIGURED",
-        "agent_id": str(uuid.uuid4()),
-    }
-    save(default)
-    return default
+            return json.load(f)
+    return {}
 
 
 def save(config):

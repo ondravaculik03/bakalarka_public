@@ -19,8 +19,10 @@ CLI usage
 
 Run agent-cli in an administrator prompt, its files in C:\ProgramData\Mastiff are for administrators only.
 
+The agent sends check-ins only after the machine is enrolled with agent-cli enroll.
+
+agent-cli enroll [server_url] [--code CODE] [--cert-hash HASH] - enroll this machine (copy the command from the dashboard's Add machines; asks for what's missing)
 agent-cli status - show current config
-agent-cli set <key> <value> - key is server_url or auth_token (applies at the agent's next run)
 agent-cli check-update [--auto] - check for new version
 agent-cli update - update to latest version
 agent-cli --version - show version
