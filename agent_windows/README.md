@@ -17,6 +17,8 @@ Keep the key file (%USERPROFILE%\.mastiff\release_signing_key.pem) and its passp
 
 CLI usage
 
+Run agent-cli in an administrator prompt, its files in C:\ProgramData\Mastiff are for administrators only.
+
 agent-cli status - show current config
 agent-cli set <key> <value> - key is server_url or auth_token (applies at the agent's next run)
 agent-cli check-update [--auto] - check for new version

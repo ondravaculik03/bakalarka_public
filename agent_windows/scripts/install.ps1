@@ -42,6 +42,14 @@ Invoke-WebRequest -Uri $cliUrl -OutFile "$temp\agent-cli.exe"
 # Instaluj
 New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
 New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
+# Config obsahuje tajný údaj (později klíč stroje), číst ho smí jen SYSTEM a Administrators.
+# SID místo názvů skupin, protože česká Windows je pojmenovávají jinak.
+icacls $CONFIG_DIR /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+# Stop nezachytí chybový kód nativního programu, proto se kontroluje ručně
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Couldn't restrict access to $CONFIG_DIR to SYSTEM and Administrators."
+    exit 1
+}
 Copy-Item "$temp\agent-service.exe" "$INSTALL_DIR\" -Force
 Copy-Item "$temp\agent-cli.exe" "$INSTALL_DIR\" -Force
 
