@@ -1,5 +1,6 @@
 import logging
 import socket
+import subprocess
 import sys
 import uuid
 
@@ -138,9 +139,13 @@ def enroll(server_url, code, cert_hash):
     cfg["server_url"] = server_url
     config.save(cfg)
 
-    logger.info(
-        "Enrolled as %s (%s). The first check-in comes within an hour, or now: "
-        "schtasks /run /tn MonitoringAgent",
-        hostname,
-        agent_id,
-    )
+    # úloha spouští agent-service jako SYSTEM, stejně jako každý další check-in
+    result = subprocess.run(["schtasks", "/run", "/tn", "MonitoringAgent"], capture_output=True)
+    if result.returncode == 0:
+        logger.info("Enrolled as %s (%s). The first check-in is on its way.", hostname, agent_id)
+    else:
+        logger.info(
+            "Enrolled as %s (%s). Start the first check-in with: schtasks /run /tn MonitoringAgent",
+            hostname,
+            agent_id,
+        )

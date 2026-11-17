@@ -1,4 +1,5 @@
 import argparse
+import ctypes
 import json
 import logging
 import sys
@@ -90,14 +91,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.command:
-        # Soubory v ProgramData\Mastiff jsou jen pro adminy, bez nich místo tracebacku jen hláška
-        try:
-            args.func(args)
-        except PermissionError:
+        # Soubory v ProgramData\Mastiff jsou jen pro adminy. Bez admina by status ukázal {}
+        # (složka není vidět), proto se to kontroluje hned na začátku
+        if not ctypes.windll.shell32.IsUserAnAdmin():
             logger.error(
                 "Run agent-cli as administrator, its files in C:\\ProgramData\\Mastiff "
                 "are for administrators only."
             )
             sys.exit(1)
+        args.func(args)
     else:
         parser.print_help()

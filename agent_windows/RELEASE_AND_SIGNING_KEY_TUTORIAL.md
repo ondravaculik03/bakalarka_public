@@ -77,7 +77,8 @@ Don't change any file in `dist/` after this - a changed exe no longer matches th
 ### 4. Publish the GitHub release
 
 On GitHub: **Releases -> Draft a new release**.
-- Tag: the version, e.g. `2.0.28` (must match the manifest exactly).
+- Tag: `v` + the version, e.g. `v2.0.28` (the updater strips the `v`; the rest must match the
+  manifest exactly).
 - Upload **5 files**: the three exes, `release-manifest.json` and `release-manifest.json.sig`.
 - **Publish release** - not a draft and not a pre-release, agents only look at the latest published
   release.
@@ -108,7 +109,7 @@ one machine (step 5) - that's the first time the new update folder and the new u
 |---|---|---|
 | `The release has no release-manifest.json.sig.` (or `.json`) | the manifest files weren't uploaded | edit the release, upload both files |
 | `Update refused: the release signature is not valid.` | the manifest was signed with another key, changed after signing, or `RELEASE_PUBLIC_KEY` is wrong / still the placeholder | sign again with the right key and re-upload; check the key line in `src/updater.py` |
-| `Update refused: the signed version ... doesn't match the release ...` | the tag isn't the version you built and signed | fix the tag, or rebuild and re-sign with the right `__version__` |
+| `Update refused: the signed version ... doesn't match the release ...` | the tag isn't `v` + the version you built and signed | fix the tag, or rebuild and re-sign with the right `__version__` |
 | `Update refused: agent-cli.exe doesn't match the signed manifest.` | an exe was rebuilt or replaced after signing | run `sign_release.py` again and re-upload all 5 files |
 | `Update failed: ...` | download error, no network, or the agent can't write to `Program Files\Mastiff` | usually fixes itself at the next run; a manual `agent-cli update` must run as admin |
 
